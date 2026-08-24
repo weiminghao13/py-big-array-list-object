@@ -1,0 +1,855 @@
+<html style="margin:0;padding:0;">
+<div id="app" style="font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;box-sizing:border-box;">
+
+<style>
+  *{box-sizing:border-box;}
+  /* 侧边栏 */
+  .sidebar{width:260px;min-width:260px;background:#1e293b;border-right:1px solid #334155;padding:16px 0;position:sticky;top:0;height:100vh;overflow-y:auto;}
+  .sidebar-title{font-size:14px;font-weight:700;color:#60a5fa;padding:0 16px 12px;border-bottom:1px solid #334155;margin-bottom:8px;}
+  .nav-group{margin-bottom:8px;}
+  .nav-group-title{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;padding:8px 16px 4px;}
+  .nav-item{display:block;padding:6px 16px 6px 24px;font-size:13px;color:#cbd5e1;text-decoration:none;cursor:pointer;transition:all .15s;border-left:3px solid transparent;}
+  .nav-item:hover{background:#334155;color:#f1f5f9;}
+  .nav-item.active{background:#1e3a5f;color:#60a5fa;border-left-color:#3b82f6;}
+  .nav-item .tag{font-size:9px;padding:1px 5px;border-radius:8px;margin-left:4px;font-weight:600;}
+  .tag-class{background:#7c3aed33;color:#c4b5fd;}
+  .tag-mixin{background:#d9770633;color:#fcd34d;}
+  .tag-func{background:#05966933;color:#6ee7b7;}
+  .tag-config{background:#db277733;color:#f9a8d4;}
+  .tag-exc{background:#ef444433;color:#fca5a5;}
+
+  /* 主内容区 */
+  .main{flex:1;padding:24px 32px;max-width:calc(100vw - 260px);overflow-x:hidden;}
+  .page-header{margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #334155;}
+  .page-header h1{font-size:24px;font-weight:800;color:#f1f5f9;margin:0 0 6px;}
+  .page-header p{font-size:13px;color:#94a3b8;margin:0;}
+  .badges{margin-top:10px;}
+  .badge{display:inline-block;font-size:11px;padding:3px 10px;border-radius:20px;margin:0 4px 4px 0;font-weight:600;}
+  .badge-blue{background:#3b82f622;color:#93c5fd;border:1px solid #3b82f644;}
+  .badge-green{background:#10b98122;color:#6ee7b7;border:1px solid #10b98144;}
+  .badge-purple{background:#8b5cf622;color:#c4b5fd;border:1px solid #8b5cf644;}
+  .badge-orange{background:#f59e0b22;color:#fcd34d;border:1px solid #f59e0b44;}
+
+  /* 类 section */
+  .class-section{margin-bottom:40px;scroll-margin-top:16px;}
+  .class-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .class-name{font-size:20px;font-weight:800;color:#f1f5f9;}
+  .class-kind{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;}
+  .kind-api{background:#7c3aed33;color:#c4b5fd;}
+  .kind-core{background:#0891b233;color:#67e8f9;}
+  .kind-mixin{background:#d9770633;color:#fcd34d;}
+  .kind-util{background:#05966933;color:#6ee7b7;}
+  .kind-config{background:#db277733;color:#f9a8d4;}
+  .kind-exc{background:#ef444433;color:#fca5a5;}
+  .class-file{font-size:12px;color:#64748b;font-family:'Consolas','Monaco',monospace;}
+  .class-inherit{font-size:12px;color:#94a3b8;margin-top:4px;}
+  .class-inherit code{background:#0f172a;padding:2px 6px;border-radius:4px;color:#a5f3fc;font-size:11px;}
+  .class-desc{font-size:13px;color:#cbd5e1;line-height:1.7;margin:10px 0 16px;background:#1e293b;padding:12px 16px;border-radius:8px;border-left:3px solid #3b82f6;}
+
+  /* 方法表格 */
+  .method-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .method-table th{background:#334155;color:#94a3b8;font-weight:700;text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+  .method-table td{padding:0;border-bottom:1px solid #1e293b;}
+  .method-row{cursor:pointer;transition:background .15s;}
+  .method-row:hover{background:#1e293b;}
+  .method-row.expanded{background:#1e3a5f;}
+  .method-name{padding:8px 12px;font-family:'Consolas','Monaco',monospace;color:#60a5fa;font-weight:600;white-space:nowrap;}
+  .method-params{padding:8px 12px;font-family:'Consolas','Monaco',monospace;color:#94a3b8;font-size:11px;}
+  .method-returns{padding:8px 12px;font-family:'Consolas','Monaco',monospace;color:#6ee7b7;font-size:11px;white-space:nowrap;}
+  .method-brief{padding:8px 12px;color:#cbd5e1;font-size:12px;}
+  .method-detail{display:none;padding:12px 16px;background:#0f172a;border-top:1px solid #334155;}
+  .method-detail.show{display:block;}
+  .method-detail p{margin:0 0 8px;font-size:12px;color:#cbd5e1;line-height:1.6;}
+  .method-detail .param-list{margin:6px 0;}
+  .method-detail .param-item{font-size:11px;color:#94a3b8;margin:2px 0;padding-left:12px;}
+  .method-detail .param-item code{color:#fcd34d;background:#1e293b;padding:1px 4px;border-radius:3px;}
+  .method-detail .return-desc{font-size:11px;color:#6ee7b7;margin-top:6px;}
+  .method-detail code{background:#1e293b;padding:1px 5px;border-radius:3px;color:#a5f3fc;font-size:11px;}
+  .expand-icon{display:inline-block;width:16px;color:#64748b;transition:transform .2s;font-size:10px;}
+  .method-row.expanded .expand-icon{transform:rotate(90deg);}
+
+  /* 架构概览 */
+  .arch-overview{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:32px;}
+  .arch-overview h3{margin:0 0 12px;font-size:16px;color:#60a5fa;}
+  .arch-layer{margin-bottom:10px;}
+  .arch-layer-title{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+  .arch-layer-items{display:flex;gap:8px;flex-wrap:wrap;}
+  .arch-chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;text-decoration:none;}
+  .arch-chip:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3);}
+  .chip-api{background:#7c3aed33;color:#c4b5fd;border:1px solid #7c3aed55;}
+  .chip-core{background:#0891b233;color:#67e8f9;border:1px solid #0891b255;}
+  .chip-mixin{background:#d9770633;color:#fcd34d;border:1px solid #d9770655;}
+  .chip-algo{background:#05966933;color:#6ee7b7;border:1px solid #05966955;}
+  .chip-util{background:#47556933;color:#cbd5e1;border:1px solid #47556955;}
+  .chip-config{background:#db277733;color:#f9a8d4;border:1px solid #db277755;}
+  .arch-arrow{text-align:center;color:#475569;font-size:16px;margin:2px 0;}
+
+  /* 滚动条 */
+  .sidebar::-webkit-scrollbar{width:6px;}
+  .sidebar::-webkit-scrollbar-track{background:#1e293b;}
+  .sidebar::-webkit-scrollbar-thumb{background:#475569;border-radius:3px;}
+  .main::-webkit-scrollbar{width:8px;}
+  .main::-webkit-scrollbar-track{background:#0f172a;}
+  .main::-webkit-scrollbar-thumb{background:#334155;border-radius:4px;}
+
+  /* 回到顶部 */
+  .back-top{position:fixed;bottom:24px;right:24px;width:44px;height:44px;border-radius:50%;background:#3b82f6;color:#fff;border:none;font-size:18px;cursor:pointer;box-shadow:0 4px 12px rgba(59,130,246,.4);display:none;z-index:100;transition:transform .2s;}
+  .back-top:hover{transform:translateY(-2px);}
+  .back-top.show{display:block;}
+
+  @media(max-width:900px){
+    .sidebar{display:none;}
+    .main{max-width:100vw;padding:16px;}
+  }
+</style>
+
+<!-- 侧边导航 -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-title">📦 BigArrayList API</div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">架构概览</div>
+    <a class="nav-item" href="#overview" onclick="scrollToSection('overview')">🏗️ 整体架构</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">用户接口层</div>
+    <a class="nav-item" href="#bigarraylist" onclick="scrollToSection('bigarraylist')">BigArrayList<span class="tag tag-class">class</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">核心层</div>
+    <a class="nav-item" href="#corebase" onclick="scrollToSection('corebase')">_CoreBase[T]<span class="tag tag-core">class</span></a>
+    <a class="nav-item" href="#basebigarraylist" onclick="scrollToSection('basebigarraylist')">BaseBigArrayList<span class="tag tag-core">class</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">算子 Mixin 层</div>
+    <a class="nav-item" href="#crudmixin" onclick="scrollToSection('crudmixin')">CRUDMixin[T]<span class="tag tag-mixin">mixin</span></a>
+    <a class="nav-item" href="#streammixin" onclick="scrollToSection('streammixin')">StreamMixin[T]<span class="tag tag-mixin">mixin</span></a>
+    <a class="nav-item" href="#lazychain" onclick="scrollToSection('lazychain')">LazyChain[T]<span class="tag tag-class">class</span></a>
+    <a class="nav-item" href="#sortmixin" onclick="scrollToSection('sortmixin')">SortMixin[T]<span class="tag tag-mixin">mixin</span></a>
+    <a class="nav-item" href="#searchmixin" onclick="scrollToSection('searchmixin')">SearchMixin[T]<span class="tag tag-mixin">mixin</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">算法层</div>
+    <a class="nav-item" href="#bucketindex" onclick="scrollToSection('bucketindex')">BucketIndex<span class="tag tag-class">class</span></a>
+    <a class="nav-item" href="#externalsort" onclick="scrollToSection('externalsort')">external_sort()<span class="tag tag-func">func</span></a>
+    <a class="nav-item" href="#reservoir" onclick="scrollToSection('reservoir')">reservoir_sample()<span class="tag tag-func">func</span></a>
+    <a class="nav-item" href="#parallelfuncs" onclick="scrollToSection('parallelfuncs')">parallel 模块函数<span class="tag tag-func">func</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">配置 & 工具</div>
+    <a class="nav-item" href="#config" onclick="scrollToSection('config')">BigArrayConfig<span class="tag tag-config">class</span></a>
+    <a class="nav-item" href="#scalehelper" onclick="scrollToSection('scalehelper')">ScaleHelper<span class="tag tag-class">class</span></a>
+    <a class="nav-item" href="#validation" onclick="scrollToSection('validation')">validation 函数<span class="tag tag-func">func</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">异常体系</div>
+    <a class="nav-item" href="#exceptions" onclick="scrollToSection('exceptions')">异常类层次<span class="tag tag-exc">exc</span></a>
+  </div>
+</nav>
+
+<!-- 主内容区 -->
+<main class="main" id="main">
+
+<div class="page-header">
+  <h1>BigArrayList 完整 API 参考</h1>
+  <p>面向大数据量场景的惰性流式列表库 · v0.2.0 · 每个类的完整方法签名、参数、返回值和说明</p>
+  <div class="badges">
+    <span class="badge badge-blue">Python ≥3.10</span>
+    <span class="badge badge-green">零运行时依赖</span>
+    <span class="badge badge-purple">mypy strict</span>
+    <span class="badge badge-orange">MIT License</span>
+    <span class="badge badge-blue">PyPI: bigarraylist</span>
+  </div>
+</div>
+
+<!-- 架构概览 -->
+<section class="arch-overview" id="overview">
+  <h3>🏗️ 整体架构（点击跳转）</h3>
+  <div class="arch-layer">
+    <div class="arch-layer-title">用户层</div>
+    <div class="arch-layer-items">
+      <a class="arch-chip chip-api" href="#bigarraylist" onclick="scrollToSection('bigarraylist')">BigArrayList（用户接口）</a>
+    </div>
+  </div>
+  <div class="arch-arrow">▼ 继承</div>
+  <div class="arch-layer">
+    <div class="arch-layer-title">核心组合层</div>
+    <div class="arch-layer-items">
+      <a class="arch-chip chip-core" href="#basebigarraylist" onclick="scrollToSection('basebigarraylist')">BaseBigArrayList（组合类）</a>
+      <a class="arch-chip chip-core" href="#corebase" onclick="scrollToSection('corebase')">_CoreBase[T]（核心基类）</a>
+    </div>
+  </div>
+  <div class="arch-arrow">▼ Mixin 组合</div>
+  <div class="arch-layer">
+    <div class="arch-layer-title">算子 Mixin 层</div>
+    <div class="arch-layer-items">
+      <a class="arch-chip chip-mixin" href="#crudmixin" onclick="scrollToSection('crudmixin')">CRUDMixin</a>
+      <a class="arch-chip chip-mixin" href="#streammixin" onclick="scrollToSection('streammixin')">StreamMixin</a>
+      <a class="arch-chip chip-mixin" href="#lazychain" onclick="scrollToSection('lazychain')">LazyChain</a>
+      <a class="arch-chip chip-mixin" href="#sortmixin" onclick="scrollToSection('sortmixin')">SortMixin</a>
+      <a class="arch-chip chip-mixin" href="#searchmixin" onclick="scrollToSection('searchmixin')">SearchMixin</a>
+    </div>
+  </div>
+  <div class="arch-arrow">▼ 依赖</div>
+  <div class="arch-layer">
+    <div class="arch-layer-title">算法层（可独立复用）</div>
+    <div class="arch-layer-items">
+      <a class="arch-chip chip-algo" href="#externalsort" onclick="scrollToSection('externalsort')">external_sort()</a>
+      <a class="arch-chip chip-algo" href="#bucketindex" onclick="scrollToSection('bucketindex')">BucketIndex</a>
+      <a class="arch-chip chip-algo" href="#reservoir" onclick="scrollToSection('reservoir')">reservoir_sample()</a>
+      <a class="arch-chip chip-algo" href="#parallelfuncs" onclick="scrollToSection('parallelfuncs')">parallel 模块函数</a>
+    </div>
+  </div>
+  <div class="arch-arrow">▼ 支撑</div>
+  <div class="arch-layer">
+    <div class="arch-layer-title">配置 & 工具层</div>
+    <div class="arch-layer-items">
+      <a class="arch-chip chip-config" href="#config" onclick="scrollToSection('config')">BigArrayConfig</a>
+      <a class="arch-chip chip-util" href="#scalehelper" onclick="scrollToSection('scalehelper')">ScaleHelper</a>
+      <a class="arch-chip chip-util" href="#validation" onclick="scrollToSection('validation')">validation</a>
+      <a class="arch-chip chip-util" href="#exceptions" onclick="scrollToSection('exceptions')">exceptions</a>
+    </div>
+  </div>
+</section>
+
+<!-- ========== BigArrayList ========== -->
+<section class="class-section" id="bigarraylist">
+  <div class="class-header">
+    <span class="class-name">BigArrayList</span>
+    <span class="class-kind kind-api">用户接口类</span>
+    <span class="class-file">bigarraylist/_api.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>BaseBigArrayList</code></div>
+  <div class="class-desc">
+    用户接口层。继承 BaseBigArrayList，在所有公共方法入口处做参数校验（类型+范围），然后转发给父类实现。
+    所有公共方法签名 100% 向后兼容。双 API 共存：旧方法返回裸 generator（不可链式），新方法 <code>.lazy()</code> 返回 LazyChain（可链式）。
+  </div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)">
+        <td><span class="expand-icon">▶</span></td>
+        <td class="method-name">__init__</td>
+        <td class="method-params">source: int | Iterable[T], *, config: BigArrayConfig | None = None, raise_custom: bool = False</td>
+        <td class="method-returns">None</td>
+        <td class="method-brief">构造 BigArrayList</td>
+      </tr>
+      <tr><td colspan="5"><div class="method-detail">
+        <p>三种构造方式：int（造 N 个全 0）、Sized Iterable（list/tuple，零物化）、纯 Iterator/Generator（必须 list() 物化拿长度）。</p>
+        <div class="param-list">
+          <div class="param-item"><code>source</code> — int / list / tuple / 任意可迭代对象</div>
+          <div class="param-item"><code>config</code> — BigArrayConfig 实例，None 用默认配置</div>
+          <div class="param-item"><code>raise_custom</code> — True 时校验失败抛自定义异常子类，False 抛标准异常（默认）</div>
+        </div>
+      </div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">append</td><td class="method-params">*new_items: T</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性追加元素</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>在原流末尾接上新元素，返回新生成器。new_items 为空也合法（等价原样产出）。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">remove</td><td class="method-params">start: int, end: int</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性删除 [start, end) 范围</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>跳过 [start, end) 范围的元素，其余照常产出。参数立即校验，越界抛 IndexError。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">replace</td><td class="method-params">start: int, end: int, *new_items: T</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性替换 [start, end) 范围</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>把 [start, end) 范围的元素替换成 new_items。new_items 数量可与原范围不同。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">insert</td><td class="method-params">index: int, *new_items: T</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性插入元素到 index 位置</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>在 index 位置插入 new_items，原 index 及之后的元素后移。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">find</td><td class="method-params">target: T, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">惰性并行线性查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式分块、多进程并行查找。每项为 (全局下标, 命中元素)。查到即 yield，配合 islice 只取前 k 个可早停。小数据（<10万）单进程线性扫。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">binary_search</td><td class="method-params">target: T, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">二分查找（先排序再 bisect）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流程：_big_iter_sort 并行排序 → 物化为 list → bisect_left/right 夹出命中区间。返回的下标是"排序后"的下标，不是原始下标。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">bucket_find</td><td class="method-params">target: T, key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">分桶查找（每次重建桶）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>按 key 哈希值分桶，只扫目标桶。每次调用都重建桶（零副作用）。要复用建桶成本请用 build_buckets()。返回原始下标。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">build_buckets</td><td class="method-params">key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None</td><td class="method-returns">BucketIndex</td><td class="method-brief">持久化分桶（建桶一次多次查询）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>建桶一次返回 BucketIndex，可多次 find(target)。支持上下文管理器 with 语法，退出自动清理临时文件。</p><div class="detail-code" style="background:#0f172a;padding:8px;border-radius:4px;font-family:Consolas,monospace;font-size:11px;color:#a5f3fc;margin-top:6px;">with big.build_buckets(num_buckets=64) as idx:<br>    for tgt in targets:<br>        hits = list(idx.find(tgt))</div></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">auto_find</td><td class="method-params">target: T, key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">统一查找入口（自动选策略）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>小数据（<config.linear_parallel_threshold）线性查找，大数据分桶查找。不做 binary_search（要排序+返回排序后下标，语义不同）。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">sort</td><td class="method-params">max_workers: int | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性并行排序（三档分流）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p><10万: sorted() 单进程 · 10万~100万: 分块并行+内存归并 · ≥100万: 外部排序（默认 streaming 低内存模式）。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">reverse</td><td class="method-params">（无）</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性反转</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>从尾到头逐个产出。int/list/tuple 源完全支持；generator 源会抛 TypeError（源已耗尽）。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">copy</td><td class="method-params">（无）</td><td class="method-returns">BigArrayList</td><td class="method-brief">返回独立副本</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回包含相同数据的新 BigArrayList 实例（独立迭代器状态）。int/list/tuple 源支持；generator 源抛 TypeError。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">sample</td><td class="method-params">k: int, seed: int | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">蓄水池抽样</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>从总量未知的流里随机等概率抽 k 个元素。内存 O(k)，无需预知 N。每个元素被选中概率 k/N。seed 可复现。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">build_index</td><td class="method-params">key_func: Callable[[T], Any] | None = None</td><td class="method-returns">dict</td><td class="method-brief">建二级索引</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>构建 dict[key] -> list[原始下标]。建好后 O(1) 判断 key 是否存在、拿到所有命中下标列表。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">map</td><td class="method-params">func: Callable[[T], U]</td><td class="method-returns">Generator[U, None, None]</td><td class="method-brief">惰性变换（裸 generator）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>对每个元素应用 func，产出结果流。返回裸 generator，不可链式。要链式请用 .lazy().map()。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">filter</td><td class="method-params">predicate: Callable[[T], bool]</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性过滤（裸 generator）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>只产出 predicate(item) 为真的元素。返回裸 generator。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">reduce</td><td class="method-params">func: Callable[[U, T], U], initial: U | None = None</td><td class="method-returns">U</td><td class="method-brief">流式聚合</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>acc = func(acc, item) 逐元素累加，返回最终 acc。initial=None 时用首个元素作初始值。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">slice</td><td class="method-params">start: int | None = None, stop: int | None = None, step: int | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性切片</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>包装 itertools.islice，支持步长。start/stop/step 不允许负数（惰性流无法反向）。step=0 抛 ValueError。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">distinct</td><td class="method-params">（无）</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性去重</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>保留每个元素的首次出现。大数据走排序去重（低内存）。返回裸 generator。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">concat</td><td class="method-params">other: Iterable[T]</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性合并两个流</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>把 self 和 other 首尾相接产出。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">chain</td><td class="method-params">*others: Iterable[T]</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性链式合并多个流</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>把 self 和多个 others 首尾相接产出。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">group_by</td><td class="method-params">key_func: Callable[[T], Any]</td><td class="method-returns">Generator[tuple[Any, list[T]], None, None]</td><td class="method-brief">SQL 风格 GROUP BY</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>按 key_func 分组，yield (key, list[elements])。注意：要求上游已按 key 排序，否则同 key 会被拆成多组。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">count_if</td><td class="method-params">predicate: Callable[[T], bool]</td><td class="method-returns">int</td><td class="method-brief">流式条件计数</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>统计 predicate(item) 为真的元素个数。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">lazy</td><td class="method-params">（无）</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">切换到链式 API</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回 LazyChain 包装的 self._fresh_iter()。每个算子返回新 LazyChain，可链式组合。最后 .collect() 物化为 list。</p><div class="detail-code" style="background:#0f172a;padding:8px;border-radius:4px;font-family:Consolas,monospace;font-size:11px;color:#a5f3fc;margin-top:6px;">result = (big.lazy()<br>    .filter(lambda x: x > 2)<br>    .map(lambda x: x * 10)<br>    .distinct()<br>    .collect())</div></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== _CoreBase ========== -->
+<section class="class-section" id="corebase">
+  <div class="class-header">
+    <span class="class-name">_CoreBase[T]</span>
+    <span class="class-kind kind-core">核心基类</span>
+    <span class="class-file">bigarraylist/core/base.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>Generic[T]</code> · 被 <code>BaseBigArrayList</code> 继承</div>
+  <div class="class-desc">
+    核心基类。持有所有状态字段（__slots__）+ 迭代协议 + _fresh_iter 核心机制。所有算子 Mixin 通过 self._fresh_iter() / len(self) / self._get_config() 与本类协作，不直接访问私有字段。
+  </div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__init__</td><td class="method-params">source: int | Iterable[T], *, config: BigArrayConfig | None = None</td><td class="method-returns">None</td><td class="method-brief">构造核心基类</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>三种 source 分流：int（生成 N 个全 0）、Sized Iterable（零物化，直接用 len）、纯 Iterator/Generator（必须 list() 物化拿长度，且更新 __source 为物化后的 list）。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__len__</td><td class="method-params">（无）</td><td class="method-returns">int</td><td class="method-brief">返回数据总量</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>len(big) 返回构造时确定的数据总量。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__iter__</td><td class="method-params">（无）</td><td class="method-returns">Iterator[T]</td><td class="method-brief">返回 self（惰性迭代）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回 self，让 for 循环调用 __next__ 逐个取值。不预读任何数据。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__next__</td><td class="method-params">（无）</td><td class="method-returns">T</td><td class="method-brief">取下一个元素</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>标准迭代器协议。耗尽抛 StopIteration。操作 self.__data（对外 for 循环专用）。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__getitem__</td><td class="method-params">index: int</td><td class="method-returns">T</td><td class="method-brief">随机访问（不支持）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>主动抛 NotImplementedError。大数据不支持随机访问（要求全部物化进内存，与惰性流设计冲突）。要取第 N 个元素用 itertools.islice 流式跳过。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__contains__</td><td class="method-params">target: object</td><td class="method-returns">bool</td><td class="method-brief">x in big 线性查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>用 _fresh_iter() 拿独立迭代器查找，不消费 self.__data。零副作用可重复调用。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_fresh_iter</td><td class="method-params">（无）</td><td class="method-returns">Iterator[T]</td><td class="method-brief">⭐ 核心机制：拿独立迭代器</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回一份基于原始 source 的全新独立迭代器。所有算子统一通过本方法拿独立局部迭代器，全程操作局部变量，绝不碰 self.__data。self.__data 只留给 __next__ 对外 for 循环用。这样算子之间零副作用，可重复调用。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_get_config</td><td class="method-params">（无）</td><td class="method-returns">BigArrayConfig</td><td class="method-brief">返回配置对象（供算子用）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回实例的 BigArrayConfig，供各 Mixin 算子读取阈值。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_get_source</td><td class="method-params">（无）</td><td class="method-returns">int | Iterable[Any]</td><td class="method-brief">返回原始 source（供 copy 用）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回原始 source 引用（不复制），供 BigArrayList.copy() 等需要构造新实例的场景使用。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">cycle</td><td class="method-params">（无）</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">无限循环迭代器</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>数据耗尽后从头再来，永不停止。while True: yield from self._fresh_iter()。必须自己 break。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_reverse_iter</td><td class="method-params">（无）</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">反向迭代器</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>从尾到头逐个产出。int 源反转仍是全 0；list/tuple 走 reversed() 视图；generator 源抛 TypeError（已耗尽）。反向迭代天然要求物化源数据，这是反向语义的固有代价。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_copy_iter</td><td class="method-params">（无）</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">复制迭代器</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>从头到尾逐个产出元素。全程操作 _fresh_iter()，不碰 self.__data。</p></div></td></tr>
+
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_sample</td><td class="method-params">k: int, seed: int | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">蓄水池抽样（核心层实现）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>直接放核心层（无需 Mixin），依赖 reservoir_sample 函数。从总量未知的流里随机等概率抽 k 个元素。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== BaseBigArrayList ========== -->
+<section class="class-section" id="basebigarraylist">
+  <div class="class-header">
+    <span class="class-name">BaseBigArrayList</span>
+    <span class="class-kind kind-core">组合类</span>
+    <span class="class-file">bigarraylist/core/base.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>_CoreBase[T], CRUDMixin[T], StreamMixin[T], SortMixin[T], SearchMixin[T]</code></div>
+  <div class="class-desc">
+    大数据惰性流基类。通过 cooperative multiple inheritance 组合核心协议 + 所有算子 Mixin。类体为空（pass），所有方法由 MRO 中的基类提供。对外 API 由 _api.BigArrayList 提供（继承本类 + 参数校验）。本类供"需要直接访问底层算子、不要参数校验"的场景使用。
+  </div>
+  <div style="background:#0f172a;padding:12px 16px;border-radius:8px;border-left:3px solid #0891b2;margin-top:12px;">
+    <div style="font-size:12px;color:#67e8f9;font-weight:700;margin-bottom:6px;">MRO 方法解析顺序</div>
+    <div style="font-family:Consolas,monospace;font-size:11px;color:#94a3b8;line-height:1.8;">
+      BaseBigArrayList → _CoreBase[T] → CRUDMixin[T] → StreamMixin[T] → SortMixin[T] → SearchMixin[T] → Generic → object
+    </div>
+  </div>
+</section>
+
+<!-- ========== CRUDMixin ========== -->
+<section class="class-section" id="crudmixin">
+  <div class="class-header">
+    <span class="class-name">CRUDMixin[T]</span>
+    <span class="class-kind kind-mixin">算子 Mixin</span>
+    <span class="class-file">bigarraylist/operators/crud.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>Generic[T]</code> · 被 <code>BaseBigArrayList</code> 组合</div>
+  <div class="class-desc">增删改插算子 Mixin。只声明方法、不声明字段（避免 __slots__ 多继承冲突）。通过 self._fresh_iter() 与 _CoreBase 协作。所有方法都是生成器函数，零副作用可重复调用。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_append_iter</td><td class="method-params">*new_items: T</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性追加</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>yield from self._fresh_iter() 然后 yield from new_items。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_remove_iter</td><td class="method-params">start: int, end: int</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性删除范围</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式枚举，index 在 [start, end) 范围内跳过，其余 yield。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_replace_iter</td><td class="method-params">start: int, end: int, *new_items: T</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性替换范围</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式枚举，到 start 位置时 yield from new_items，然后跳到 end 位置继续。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_insert_iter</td><td class="method-params">index: int, *new_items: T</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性插入</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式枚举，到 index 位置时 yield from new_items，然后继续 yield 原元素。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== StreamMixin ========== -->
+<section class="class-section" id="streammixin">
+  <div class="class-header">
+    <span class="class-name">StreamMixin[T]</span>
+    <span class="class-kind kind-mixin">算子 Mixin</span>
+    <span class="class-file">bigarraylist/operators/stream.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>Generic[T]</code> · 被 <code>BaseBigArrayList</code> 组合</div>
+  <div class="class-desc">流式算子 Mixin + LazyChain 链式 API。包含 map/filter/reduce/slice/distinct/concat/chain/group_by/count_if 等流式算子，以及 lazy() 入口返回 LazyChain。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_map_iter</td><td class="method-params">func: Callable[[T], U]</td><td class="method-returns">Generator[U, None, None]</td><td class="method-brief">惰性变换</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>(func(x) for x in self._fresh_iter())</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_filter_iter</td><td class="method-params">predicate: Callable[[T], bool]</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性过滤</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>(x for x in self._fresh_iter() if predicate(x))</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_reduce</td><td class="method-params">func: Callable[[U, T], U], initial: U | None = None</td><td class="method-returns">U</td><td class="method-brief">流式聚合</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>functools.reduce(func, self._fresh_iter(), initial)。initial=None 时用首个元素。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_slice_iter</td><td class="method-params">start: int | None, stop: int | None, step: int | None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性切片</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>itertools.islice(self._fresh_iter(), start, stop, step)</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_distinct_iter</td><td class="method-params">（无）</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性去重</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>大数据走排序去重（低内存），小数据用 set。保留首次出现。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_concat_iter</td><td class="method-params">other: Iterable[T]</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性合并两个流</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>itertools.chain(self._fresh_iter(), other)</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_chain_iter</td><td class="method-params">*others: Iterable[T]</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">惰性链式合并多个流</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>itertools.chain(self._fresh_iter(), *others)</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_group_by_iter</td><td class="method-params">key_func: Callable[[T], Any]</td><td class="method-returns">Generator[tuple[Any, list[T]], None, None]</td><td class="method-brief">SQL 风格 GROUP BY</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>itertools.groupby + list 物化每组。要求上游已按 key 排序，否则同 key 会被拆成多组。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_count_if</td><td class="method-params">predicate: Callable[[T], bool]</td><td class="method-returns">int</td><td class="method-brief">流式条件计数</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>sum(1 for x in self._fresh_iter() if predicate(x))</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">lazy</td><td class="method-params">（无）</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">切换到链式 API</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回 LazyChain(self._fresh_iter())。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== LazyChain ========== -->
+<section class="class-section" id="lazychain">
+  <div class="class-header">
+    <span class="class-name">LazyChain[T]</span>
+    <span class="class-kind kind-mixin">链式 API 类</span>
+    <span class="class-file">bigarraylist/operators/stream.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>Generic[T]</code> · 由 <code>StreamMixin.lazy()</code> 创建</div>
+  <div class="class-desc">链式 API 包装器。每个算子返回新的 LazyChain，全程惰性，只有 .collect() / for x in chain 才真正消费。支持 .filter().map().distinct().slice().collect() 链式调用。distinct() 有大数据保护（set 达 10 万主动抛错，建议用 BigArrayList.distinct()）。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__init__</td><td class="method-params">data: Iterable[T]</td><td class="method-returns">None</td><td class="method-brief">构造链式包装器</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>包装一个可迭代对象。通常由 big.lazy() 创建，传入 self._fresh_iter()。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__iter__</td><td class="method-params">（无）</td><td class="method-returns">Iterator[T]</td><td class="method-brief">返回迭代器（触发消费）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>for x in chain 时触发实际消费。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">map</td><td class="method-params">func: Callable[[T], U]</td><td class="method-returns">LazyChain[U]</td><td class="method-brief">变换（类型 T→U）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回新 LazyChain(func(x) for x in self)。类型从 T 变为 U。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">filter</td><td class="method-params">predicate: Callable[[T], bool]</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">过滤（类型不变）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回新 LazyChain(x for x in self if predicate(x))。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">slice</td><td class="method-params">start: int | None = None, stop: int | None = None, step: int | None = None</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">切片</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>itertools.islice 包装。不支持负数。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">distinct</td><td class="method-params">（无）</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">去重（小数据用 set）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>用 set 去重。⚠️ 大数据保护：set 达到 10 万不同元素时主动抛 RuntimeError，避免无声爆内存。大数据请改用 BigArrayList.distinct()（走排序去重）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">take</td><td class="method-params">n: int</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">取前 n 个</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>等价于 .slice(stop=n)。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">drop</td><td class="method-params">n: int</td><td class="method-returns">LazyChain[T]</td><td class="method-brief">跳过前 n 个</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>等价于 .slice(start=n)。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">collect</td><td class="method-params">（无）</td><td class="method-returns">list[T]</td><td class="method-brief">⭐ 物化为 list</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>触发实际消费，返回 list。这是链式 API 的终结操作。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">to_list</td><td class="method-params">（无）</td><td class="method-returns">list[T]</td><td class="method-brief">物化为 list（collect 别名）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>collect() 的别名。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">first</td><td class="method-params">（无）</td><td class="method-returns">T | None</td><td class="method-brief">取第一个元素</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>next(iter(self), None)。空流返回 None。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">count</td><td class="method-params">（无）</td><td class="method-returns">int</td><td class="method-brief">计数</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>sum(1 for _ in self)。触发消费。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== SortMixin ========== -->
+<section class="class-section" id="sortmixin">
+  <div class="class-header">
+    <span class="class-name">SortMixin[T]</span>
+    <span class="class-kind kind-mixin">算子 Mixin</span>
+    <span class="class-file">bigarraylist/operators/sort.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>Generic[T]</code> · 被 <code>BaseBigArrayList</code> 组合</div>
+  <div class="class-desc">排序算子 Mixin。三档分流排序（小数据单进程 / 中数据分块并行 / 大数据外部排序），全链路支持 key= 参数。is_sorted 并行判断有序。_binary_search 先排序再 bisect。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">is_sorted</td><td class="method-params">max_workers: int | None = None</td><td class="method-returns">bool</td><td class="method-brief">判断是否升序</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>大数据并行判断：每块内部判断局部有序 + 相邻块边界比较（前块尾≤后块头），两者同时满足才算全局有序。小数据直接流式 O(n) 判断。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_big_iter_sort</td><td class="method-params">max_workers: int | None = None, key: Callable[[T], Any] | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">⭐ 三档分流排序</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p><10万: sorted() 单进程 · 10万~100万: 分块并行排序 + heapq.merge 内存多路归并 · ≥100万: 调用 external_sort 落盘外部排序。全链路 key= 支持。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_external_sort</td><td class="method-params">max_workers: int | None = None, key: Callable[[T], Any] | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">外部排序（向后兼容别名）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>实际实现位于 algorithms.external_sort.external_sort。本方法仅作为旧调用入口。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_binary_search</td><td class="method-params">target: T, max_workers: int | None = None, key: Callable[[T], Any] | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">二分查找（先排序再 bisect）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流程：_big_iter_sort 排序 → 物化为 list（bisect 需要随机访问）→ bisect_left/right 夹出命中区间 → 逐个 yield (排序后下标, 元素)。返回的是排序后下标，不是原始下标。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== SearchMixin ========== -->
+<section class="class-section" id="searchmixin">
+  <div class="class-header">
+    <span class="class-name">SearchMixin[T]</span>
+    <span class="class-kind kind-mixin">算子 Mixin</span>
+    <span class="class-file">bigarraylist/operators/search.py</span>
+  </div>
+  <div class="class-inherit">继承: <code>Generic[T]</code> · 被 <code>BaseBigArrayList</code> 组合</div>
+  <div class="class-desc">查找算子 Mixin。四种查找策略：并行线性查找、二分查找、分桶查找、自动选择。持久化分桶 build_buckets 返回 BucketIndex。二级索引 build_index 构建 dict 映射。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_parallel_find</td><td class="method-params">target: T, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">并行线性查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式分块 + ProcessPoolExecutor 多进程并行。每块调 linear_find_in_chunk，按提交顺序 yield。小数据（<10万）单进程线性扫。查到即 yield，可早停。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_bucket_find</td><td class="method-params">target: T, key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">分桶查找（每次重建桶）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>按 key 哈希分桶落盘，只扫目标桶。每次调用都重建桶。要复用建桶成本用 _build_buckets。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_build_buckets</td><td class="method-params">key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None</td><td class="method-returns">BucketIndex</td><td class="method-brief">持久化分桶（建桶一次）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>建桶一次返回 BucketIndex，可多次 find。支持上下文管理器。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_build_index</td><td class="method-params">key_func: Callable[[T], Any] | None = None</td><td class="method-returns">dict</td><td class="method-brief">建二级索引</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>dict[key] -> list[原始下标]。O(1) 判断 key 存在、拿命中下标列表。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_auto_find</td><td class="method-params">target: T, key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None, max_workers: int | None = None</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">自动选策略查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>小数据线性查找，大数据分桶查找。不做 binary_search（语义不同）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">_extract_bucket_idx</td><td class="method-params">target: T, num_buckets: int, key_func: Callable[[T], Any] | None = None</td><td class="method-returns">int</td><td class="method-brief">计算目标桶编号</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>hash(key_func(target) or target) % num_buckets。处理负数 hash。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== BucketIndex ========== -->
+<section class="class-section" id="bucketindex">
+  <div class="class-header">
+    <span class="class-name">BucketIndex</span>
+    <span class="class-kind kind-util">持久化分桶类</span>
+    <span class="class-file">bigarraylist/algorithms/bucket.py</span>
+  </div>
+  <div class="class-inherit">由 <code>SearchMixin._build_buckets()</code> / <code>build_buckets()</code> 创建</div>
+  <div class="class-desc">持久化分桶索引。建桶一次（O(n) 落盘），后续多次查询每次只扫目标桶（O(n/N)）。实现上下文管理器，退出自动清理临时文件。owns_files=False 支持跨进程持久化复用。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__init__</td><td class="method-params">data: Iterable[T], total_count: int, *, key_func: Callable[[T], Any] | None = None, num_buckets: int | None = None, config: BigArrayConfig | None = None</td><td class="method-returns">None</td><td class="method-brief">建桶（构造时即落盘）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式读数据，按 hash(key) % num_buckets 分桶，每桶写入临时文件。num_buckets 默认按数据量自动选择（受 config.bucket_max_count 限制）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__enter__</td><td class="method-params">（无）</td><td class="method-returns">BucketIndex</td><td class="method-brief">上下文管理器入口</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回 self。支持 with 语法。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">__exit__</td><td class="method-params">exc_type, exc_val, exc_tb</td><td class="method-returns">None</td><td class="method-brief">上下文管理器退出（自动清理）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>调用 close() 清理所有临时桶文件。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">find</td><td class="method-params">target: T</td><td class="method-returns">Generator[tuple[int, T], None, None]</td><td class="method-brief">⭐ 单桶查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>计算 target 所在桶编号，只打开并扫描该桶文件，yield (原始下标, 命中元素)。O(n/N) 复杂度。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">close</td><td class="method-params">（无）</td><td class="method-returns">None</td><td class="method-brief">手动清理临时文件</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>删除所有临时桶文件。用 with 语法时自动调用，无需手动。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">num_buckets</td><td class="method-params">（property）</td><td class="method-returns">int</td><td class="method-brief">桶数量（只读属性）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回实际使用的桶数量。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== external_sort ========== -->
+<section class="class-section" id="externalsort">
+  <div class="class-header">
+    <span class="class-name">external_sort()</span>
+    <span class="class-kind kind-util">模块级函数</span>
+    <span class="class-file">bigarraylist/algorithms/external_sort.py</span>
+  </div>
+  <div class="class-desc">真正的低内存外部排序。两阶段算法：阶段1流式分块排序+落盘，阶段2多路归并。默认 streaming 模式（逐条 pickle.load，内存峰值 O(块数)），block 模式（整块 load，快 3~5 倍但内存≈数据总量）通过配置 opt-in。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>函数</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">external_sort</td><td class="method-params">data: Iterable[T], total_count: int, *, config: BigArrayConfig | None = None, max_workers: int | None = None, key: Callable[[T], Any] | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">⭐ 低内存外部排序</td></tr>
+      <tr><td colspan="5"><div class="method-detail">
+        <p>阶段1：流式读 data → 攒够 chunk_size → pool.submit(sort_chunk).result() → 落盘临时文件。顺序提交牺牲并行度换内存安全。</p>
+        <p>阶段2：同时打开所有临时文件 → lazy 文件迭代器 → heapq.merge 多路归并 → 逐条 yield。</p>
+        <p>streaming 模式：阶段1逐条 pickle.dump，阶段2逐条 pickle.load，内存峰值 O(块数)≈32条元素。</p>
+        <p>block 模式：阶段1整块 dump，阶段2整块 load，速度快3~5倍但内存≈数据总量。</p>
+        <div class="param-list">
+          <div class="param-item"><code>data</code> — 数据源迭代器（建议来自 _fresh_iter）</div>
+          <div class="param-item"><code>total_count</code> — 数据总条数（用于选块大小）</div>
+          <div class="param-item"><code>config</code> — BigArrayConfig，None 用默认</div>
+          <div class="param-item"><code>max_workers</code> — 阶段1排序进程池并行度</div>
+          <div class="param-item"><code>key</code> — 排序键函数，None 按元素本身排序</div>
+        </div>
+        <div class="return-desc">返回生成器，按 key 的非降序逐条产出已排序元素。</div>
+      </div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== reservoir_sample ========== -->
+<section class="class-section" id="reservoir">
+  <div class="class-header">
+    <span class="class-name">reservoir_sample()</span>
+    <span class="class-kind kind-util">模块级函数</span>
+    <span class="class-file">bigarraylist/algorithms/sample.py</span>
+  </div>
+  <div class="class-desc">蓄水池抽样算法。从总量未知的流里随机等概率抽 k 个元素。前 k 个直接入池，第 i 个（i>k）以 k/i 概率替换池中随机元素。数学保证每个元素被选中概率都是 k/N。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>函数</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">reservoir_sample</td><td class="method-params">data: Iterable[T], k: int, *, seed: int | None = None</td><td class="method-returns">Generator[T, None, None]</td><td class="method-brief">⭐ 蓄水池抽样</td></tr>
+      <tr><td colspan="5"><div class="method-detail">
+        <p>时间 O(N) 一遍流式扫描，空间 O(k) 蓄水池大小，无需预知总量 N。</p>
+        <div class="param-list">
+          <div class="param-item"><code>data</code> — 数据源迭代器</div>
+          <div class="param-item"><code>k</code> — 要抽取的样本数（>=1）</div>
+          <div class="param-item"><code>seed</code> — 随机种子，None 系统随机；传 int 可复现</div>
+        </div>
+        <div class="return-desc">返回生成器，逐个 yield 抽中的 k 个元素。</div>
+      </div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== parallel 模块函数 ========== -->
+<section class="class-section" id="parallelfuncs">
+  <div class="class-header">
+    <span class="class-name">parallel 模块函数</span>
+    <span class="class-kind kind-util">模块级可 pickle 函数</span>
+    <span class="class-file">bigarraylist/algorithms/parallel.py</span>
+  </div>
+  <div class="class-desc">模块级可 pickle 函数，供 ProcessPoolExecutor 子进程调用。必须放在模块级（不能是嵌套函数/lambda），否则子进程 spawn 时 pickle 找不到定义。保留旧名字别名（带下划线前缀）向后兼容。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>函数</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">sort_chunk</td><td class="method-params">args: tuple[list[T], Callable | None] 或 tuple[list[T]]</td><td class="method-returns">list[T]</td><td class="method-brief">对单块排序（支持 key）</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>args 形如 (chunk, key)；key=None 按元素本身排序。向后兼容旧式 (chunk,) 一元组。sorted(chunk, key=key)。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">linear_find_in_chunk</td><td class="method-params">args: tuple[list[T], T, int]</td><td class="method-returns">list[tuple[int, T]]</td><td class="method-brief">单块线性查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>args = (chunk, target, start_index)。返回 [(全局下标, 元素), ...]。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">chunk_is_sorted</td><td class="method-params">args: tuple[list[T]]</td><td class="method-returns">bool</td><td class="method-brief">判断单块是否升序</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>args = (chunk,)。all(chunk[i] <= chunk[i+1])。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">bisect_find_in_chunk</td><td class="method-params">args: tuple[list[T], T, int]</td><td class="method-returns">list[tuple[int, T]]</td><td class="method-brief">已排序块的二分查找</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>args = (sorted_chunk, target, start_index)。bisect_left/right 夹出命中区间。</p></div></td></tr>
+    </tbody>
+  </table>
+  <div style="margin-top:12px;background:#0f172a;padding:10px 14px;border-radius:6px;border-left:3px solid #f59e0b;">
+    <div style="font-size:11px;color:#fcd34d;font-weight:700;margin-bottom:4px;">向后兼容别名</div>
+    <div style="font-family:Consolas,monospace;font-size:11px;color:#94a3b8;">_sort_chunk = sort_chunk · _linear_find_in_chunk = linear_find_in_chunk · _chunk_is_sorted = chunk_is_sorted · _bisect_find_in_chunk = bisect_find_in_chunk</div>
+  </div>
+</section>
+
+<!-- ========== BigArrayConfig ========== -->
+<section class="class-section" id="config">
+  <div class="class-header">
+    <span class="class-name">BigArrayConfig</span>
+    <span class="class-kind kind-config">配置对象</span>
+    <span class="class-file">bigarraylist/config.py</span>
+  </div>
+  <div class="class-inherit">frozen dataclass · 被 <code>_CoreBase</code> 持有</div>
+  <div class="class-desc">配置对象。frozen=True 防止运行时被篡改。9个可配字段集中管理所有阈值，避免硬编码散落在代码里。set_default() 类方法支持全局覆盖默认配置。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>方法/字段</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">default</td><td class="method-params">（classmethod）</td><td class="method-returns">BigArrayConfig</td><td class="method-brief">返回默认配置实例</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>返回用所有默认值构造的 BigArrayConfig 实例。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">set_default</td><td class="method-params">**kwargs: Any（classmethod）</td><td class="method-returns">None</td><td class="method-brief">全局覆盖默认配置</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>更新类级默认值。之后 BigArrayList() 不传 config 时用新默认值。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">linear_parallel_threshold</td><td class="method-params">int（字段）</td><td class="method-returns">100_000</td><td class="method-brief">线性查找/排序的并行阈值</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>小于这个数不开多进程（进程启动开销 > 收益）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">external_sort_threshold</td><td class="method-params">int（字段）</td><td class="method-returns">1_000_000</td><td class="method-brief">外部排序阈值</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>大于等于这个数走外部排序（落盘）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">external_sort_streaming_merge</td><td class="method-params">bool（字段）</td><td class="method-returns">True</td><td class="method-brief">外部排序归并模式</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>True=streaming（逐条 load，省内存，默认）· False=block（整块 load，快3~5倍，内存≈数据总量）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">external_sort_chunk_target</td><td class="method-params">int（字段）</td><td class="method-returns">32</td><td class="method-brief">外部排序目标分块数</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>归并阶段同时打开的文件数，受 OS 文件描述符上限限制。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">external_sort_min_chunk</td><td class="method-params">int（字段）</td><td class="method-returns">100_000</td><td class="method-brief">外部排序单块最小大小</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>单块元素数下限。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">external_sort_max_chunk</td><td class="method-params">int（字段）</td><td class="method-returns">5_000_000</td><td class="method-brief">外部排序单块最大大小</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>单块元素数上限。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">bucket_max_count</td><td class="method-params">int（字段）</td><td class="method-returns">1024</td><td class="method-brief">分桶最大数量</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>分桶查找的桶数上限，受 OS 文件描述符限制。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">bucket_default_count</td><td class="method-params">int | None（字段）</td><td class="method-returns">None</td><td class="method-brief">分桶默认数量</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>None 表示按数据量自动选择。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">default_max_workers</td><td class="method-params">int | None（字段）</td><td class="method-returns">None</td><td class="method-brief">默认进程池并行度</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>None 表示用 os.cpu_count()。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== ScaleHelper ========== -->
+<section class="class-section" id="scalehelper">
+  <div class="class-header">
+    <span class="class-name">ScaleHelper</span>
+    <span class="class-kind kind-util">数据量级工具</span>
+    <span class="class-file">bigarraylist/utils/scale.py</span>
+  </div>
+  <div class="class-desc">数据量级判定 + 分块大小选择 + 通用分块迭代器。整个项目的"数据量级感知中枢"，所有"什么时候开多进程、什么时候走外部排序、每块多大"的决策都在这里。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>函数/常量</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">choose_chunk_size</td><td class="method-params">n: int</td><td class="method-returns">int</td><td class="method-brief">普通分块大小选择</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>映射表驱动：<10万→100，10万~100万→500，>=100万→1000。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">choose_external_sort_chunk_size</td><td class="method-params">total_count: int, *, target: int = 32, min_chunk: int = 100000, max_chunk: int = 5000000</td><td class="method-returns">int</td><td class="method-brief">外部排序分块大小选择</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>目标 target 块（默认32），单块大小 = ceil(total_count / target)，受 min_chunk/max_chunk 上下限保护。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">chunk_wise_processing</td><td class="method-params">data: Iterable[T], chunk_size: int</td><td class="method-returns">Generator[list[T], None, None]</td><td class="method-brief">通用分块迭代器</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>流式攒块，每满 chunk_size  yield 一个 list。要求 data 有 __len__（Sized），generator 会炸。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">HUNDRED_THOUSAND / MILLION / TEN_MILLION</td><td class="method-params">（常量）</td><td class="method-returns">ScaleValue</td><td class="method-brief">数据量级常量</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>10万 / 100万 / 1000万 三个量级常量，包装为 ScaleValue 对象。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== validation ========== -->
+<section class="class-section" id="validation">
+  <div class="class-header">
+    <span class="class-name">validation 函数</span>
+    <span class="class-kind kind-util">参数校验工具</span>
+    <span class="class-file">bigarraylist/utils/validation.py</span>
+  </div>
+  <div class="class-desc">统一参数校验函数。每个函数接受 use_custom 开关：False（默认）抛标准异常（ValueError/IndexError/TypeError），向后兼容；True 抛自定义异常子类（InvalidArgumentError/IndexOutOfRangeError/DataSourceError）。</div>
+  <table class="method-table">
+    <thead><tr><th style="width:30px;"></th><th>函数</th><th>参数</th><th>返回值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_index</td><td class="method-params">name: str, value: object, length: int, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验索引</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>排除bool → 检查int → 检查范围 [0, length]。非法抛 TypeError/IndexError。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_range</td><td class="method-params">start: int, end: int, length: int, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验范围 [start, end)</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>排除bool → 检查int → 检查 0 <= start <= end <= length。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_max_workers</td><td class="method-params">value: int | None, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验进程池并行度</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>None 合法（用默认）。否则排除bool → 检查int → >=1。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_num_buckets</td><td class="method-params">value: int | None, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验桶数量</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>None 合法。否则排除bool → 检查int → >=2。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_sample_k</td><td class="method-params">value: int, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验抽样数量</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>排除bool → 检查int → >=1。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_slice_arg</td><td class="method-params">name: str, value: int | None, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验切片参数</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>None 合法。否则排除bool → 检查int → >=0（不支持负数）。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_callable</td><td class="method-params">name: str, value: object, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验可调用对象</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>检查 callable(value)。</p></div></td></tr>
+      <tr class="method-row" onclick="toggleMethod(this)"><td><span class="expand-icon">▶</span></td><td class="method-name">validate_iterable</td><td class="method-params">name: str, value: object, *, use_custom: bool = False</td><td class="method-returns">None</td><td class="method-brief">校验可迭代对象</td></tr>
+      <tr><td colspan="5"><div class="method-detail"><p>检查 hasattr(value, '__iter__')。</p></div></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== exceptions ========== -->
+<section class="class-section" id="exceptions">
+  <div class="class-header">
+    <span class="class-name">异常类层次</span>
+    <span class="class-kind kind-exc">自定义异常</span>
+    <span class="class-file">bigarraylist/exceptions.py</span>
+  </div>
+  <div class="class-desc">自定义异常体系。每个异常同时继承 BigArrayListError 和对应的标准异常，兼顾精确捕获和向后兼容。旧代码 except ValueError/IndexError/TypeError 依然能捕获；新代码 except BigArrayListError 一网打尽；精确捕获 except InvalidArgumentError 也可以。</div>
+  <div style="background:#0f172a;padding:16px;border-radius:8px;border-left:3px solid #ef4444;margin-top:12px;">
+    <div style="font-size:13px;color:#fca5a5;font-weight:700;margin-bottom:10px;">异常继承层次</div>
+    <div style="font-family:Consolas,monospace;font-size:12px;color:#cbd5e1;line-height:2;">
+      <div>Exception</div>
+      <div style="padding-left:20px;">└── <span style="color:#fca5a5;">BigArrayListError</span>（基类）</div>
+      <div style="padding-left:40px;">├── <span style="color:#fcd34d;">InvalidArgumentError</span>(BigArrayListError, <span style="color:#94a3b8;">ValueError</span>)</div>
+      <div style="padding-left:40px;">├── <span style="color:#fcd34d;">IndexOutOfRangeError</span>(BigArrayListError, <span style="color:#94a3b8;">IndexError</span>)</div>
+      <div style="padding-left:40px;">├── <span style="color:#fcd34d;">DataSourceError</span>(BigArrayListError, <span style="color:#94a3b8;">TypeError</span>)</div>
+      <div style="padding-left:40px;">└── <span style="color:#fcd34d;">OperationNotSupportedError</span>(BigArrayListError, <span style="color:#94a3b8;">NotImplementedError</span>)</div>
+    </div>
+  </div>
+  <table class="method-table" style="margin-top:16px;">
+    <thead><tr><th>异常类</th><th>继承</th><th>触发场景</th></tr></thead>
+    <tbody>
+      <tr><td class="method-name" style="font-size:13px;">BigArrayListError</td><td class="method-params">Exception</td><td class="method-brief">所有自定义异常的基类，一网打尽</td></tr>
+      <tr><td class="method-name" style="font-size:13px;">InvalidArgumentError</td><td class="method-params">BigArrayListError, ValueError</td><td class="method-brief">参数类型错误、值不合法（如 max_workers=0）</td></tr>
+      <tr><td class="method-name" style="font-size:13px;">IndexOutOfRangeError</td><td class="method-params">BigArrayListError, IndexError</td><td class="method-brief">索引越界（如 index >= len）</td></tr>
+      <tr><td class="method-name" style="font-size:13px;">DataSourceError</td><td class="method-params">BigArrayListError, TypeError</td><td class="method-brief">数据源类型不支持（如 generator 源 reverse/copy）</td></tr>
+      <tr><td class="method-name" style="font-size:13px;">OperationNotSupportedError</td><td class="method-params">BigArrayListError, NotImplementedError</td><td class="method-brief">操作不支持（如随机访问 __getitem__）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div style="text-align:center;padding:32px 0;color:#64748b;font-size:12px;border-top:1px solid #334155;margin-top:40px;">
+  BigArrayList v0.2.0 完整 API 参考 · 点击任意方法行展开详细说明 · 左侧导航快速跳转
+</div>
+
+</main>
+
+<button class="back-top" id="backTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+</div>
+
+<script>
+(function(){
+  try{
+    // 方法行展开/折叠
+    function toggleMethod(row){
+      var detail = row.nextElementSibling;
+      if(!detail || !detail.querySelector('.method-detail')) return;
+      var inner = detail.querySelector('.method-detail');
+      row.classList.toggle('expanded');
+      inner.classList.toggle('show');
+    }
+    window.toggleMethod = toggleMethod;
+
+    // 滚动到 section
+    function scrollToSection(id){
+      var el = document.getElementById(id);
+      if(el){
+        el.scrollIntoView({behavior:'smooth',block:'start'});
+        // 更新侧边栏高亮
+        document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
+        var navItem = document.querySelector('.nav-item[href="#'+id+'"]');
+        if(navItem) navItem.classList.add('active');
+      }
+      return false;
+    }
+    window.scrollToSection = scrollToSection;
+
+    // 回到顶部按钮
+    var backTop = document.getElementById('backTop');
+    window.addEventListener('scroll', function(){
+      if(window.scrollY > 300){
+        backTop.classList.add('show');
+      }else{
+        backTop.classList.remove('show');
+      }
+    });
+
+    // 滚动时更新侧边栏高亮
+    var sections = document.querySelectorAll('.class-section, .arch-overview');
+    var navItems = document.querySelectorAll('.nav-item');
+    window.addEventListener('scroll', function(){
+      var current = '';
+      sections.forEach(function(s){
+        var rect = s.getBoundingClientRect();
+        if(rect.top <= 100) current = s.id;
+      });
+      if(current){
+        navItems.forEach(function(n){
+          n.classList.toggle('active', n.getAttribute('href') === '#'+current);
+        });
+      }
+    });
+
+  }catch(e){
+    console.error('交互初始化失败:', e);
+  }
+})();
+</script>
+</html>

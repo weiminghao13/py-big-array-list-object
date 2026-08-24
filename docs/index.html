@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BigArrayList — 面向大数据量的惰性流式列表库</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;}
+  .hero{text-align:center;padding:80px 24px 60px;background:linear-gradient(180deg,#1e293b 0%,#0f172a 100%);}
+  .hero h1{font-size:48px;font-weight:800;color:#f1f5f9;margin-bottom:16px;letter-spacing:-1px;}
+  .hero h1 span{color:#60a5fa;}
+  .hero p{font-size:18px;color:#94a3b8;max-width:640px;margin:0 auto 32px;line-height:1.7;}
+  .badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:40px;}
+  .badge{font-size:12px;padding:5px 14px;border-radius:20px;font-weight:600;}
+  .badge-blue{background:#3b82f622;color:#93c5fd;border:1px solid #3b82f644;}
+  .badge-green{background:#10b98122;color:#6ee7b7;border:1px solid #10b98144;}
+  .badge-purple{background:#8b5cf622;color:#c4b5fd;border:1px solid #8b5cf644;}
+  .badge-orange{background:#f59e0b22;color:#fcd34d;border:1px solid #f59e0b44;}
+  .cta-row{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;}
+  .cta{display:inline-block;padding:14px 32px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;transition:all .2s;cursor:pointer;}
+  .cta-primary{background:#3b82f6;color:#fff;box-shadow:0 4px 16px rgba(59,130,246,.3);}
+  .cta-primary:hover{background:#2563eb;transform:translateY(-2px);box-shadow:0 6px 20px rgba(59,130,246,.4);}
+  .cta-secondary{background:#1e293b;color:#cbd5e1;border:1px solid #334155;}
+  .cta-secondary:hover{background:#334155;color:#f1f5f9;transform:translateY(-2px);}
+  .features{max-width:1100px;margin:0 auto;padding:60px 24px;}
+  .features h2{text-align:center;font-size:28px;font-weight:800;color:#f1f5f9;margin-bottom:48px;}
+  .feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;}
+  .feature-card{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:28px;transition:all .25s;}
+  .feature-card:hover{border-color:#60a5fa;transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,0,0,.3);}
+  .feature-icon{font-size:36px;margin-bottom:16px;}
+  .feature-card h3{font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:10px;}
+  .feature-card p{font-size:14px;color:#94a3b8;line-height:1.7;}
+  .install-section{max-width:800px;margin:0 auto;padding:40px 24px 80px;}
+  .install-box{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:32px;}
+  .install-box h3{font-size:20px;font-weight:700;color:#60a5fa;margin-bottom:16px;}
+  .code-block{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px 20px;font-family:'Consolas','Monaco',monospace;font-size:14px;color:#a5f3fc;overflow-x:auto;margin-bottom:16px;}
+  .code-block .comment{color:#64748b;}
+  .code-block .keyword{color:#c4b5fd;}
+  .code-block .string{color:#6ee7b7;}
+  footer{text-align:center;padding:32px 24px;border-top:1px solid #334155;color:#64748b;font-size:13px;}
+  footer a{color:#60a5fa;text-decoration:none;}
+  @media(max-width:600px){
+    .hero h1{font-size:32px;}
+    .hero p{font-size:15px;}
+    .features h2{font-size:22px;}
+  }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <h1><span>Big</span>ArrayList</h1>
+  <p>面向大数据量场景的惰性流式列表库。零运行时依赖，支持千万级数据的流式处理、并行排序、外部排序与分桶查找。</p>
+  <div class="badges">
+    <span class="badge badge-blue">Python ≥ 3.10</span>
+    <span class="badge badge-green">零运行时依赖</span>
+    <span class="badge badge-purple">mypy strict</span>
+    <span class="badge badge-orange">MIT License</span>
+    <span class="badge badge-blue">PyPI: bigarraylist</span>
+  </div>
+  <div class="cta-row">
+    <a class="cta cta-primary" href="api_reference_interactive.html">📖 API 参考文档</a>
+    <a class="cta cta-secondary" href="architecture_diagram.html">🏗️ 架构图</a>
+  </div>
+</section>
+
+<section class="features">
+  <h2>核心特性</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🌊</div>
+      <h3>惰性流式处理</h3>
+      <p>所有算子返回 generator，数据按需计算，内存占用 O(1)。支持 map / filter / reduce / distinct / slice 等链式操作。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <h3>三级智能排序</h3>
+      <p>根据数据量自动选择策略：10 万条以内直接排序，10 万~100 万分块并行排序，100 万以上自动落盘外部排序。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔍</div>
+      <h3>多种查找方式</h3>
+      <p>支持线性查找、二分查找、并行查找和分桶索引查找。建桶一次，多次查询，海量数据也能秒级定位。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧩</div>
+      <h3>协作式多继承</h3>
+      <p>_CoreBase 持有状态，各 Mixin 只声明方法，通过 MRO 协作。__slots__ 降低内存，_fresh_iter 保证算子互不污染。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🛡️</div>
+      <h3>类型安全</h3>
+      <p>全量泛型标注，mypy strict 模式零错误。disallow_untyped_defs + warn_return_any 全开，IDE 补全丝滑。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📦</div>
+      <h3>零依赖轻量</h3>
+      <p>纯标准库实现，安装包仅 45KB。不需要 numpy、pandas 等重型依赖，嵌入式环境和容器镜像都能轻松使用。</p>
+    </div>
+  </div>
+</section>
+
+<section class="install-section">
+  <div class="install-box">
+    <h3>🚀 快速开始</h3>
+    <div class="code-block"><span class="comment"># 安装</span>
+pip install bigarraylist</div>
+    <div class="code-block"><span class="keyword">from</span> bigarraylist <span class="keyword">import</span> BigArrayList
+
+<span class="comment"># 创建一个百万级数据流</span>
+data = BigArrayList(<span class="keyword">range</span>(<span class="string">1_000_000</span>))
+
+<span class="comment"># 链式惰性处理（全程不占内存）</span>
+result = data.lazy() \
+    .<span class="keyword">filter</span>(<span class="keyword">lambda</span> x: x % <span class="string">2</span> == <span class="string">0</span>) \
+    .map(<span class="keyword">lambda</span> x: x * x) \
+    .take(<span class="string">10</span>) \
+    .collect()
+
+<span class="comment"># 智能排序（自动选择并行/外部排序）</span>
+data.sort()
+
+<span class="comment"># 分桶索引查找</span>
+data.build_buckets()
+idx = data.bucket_find(<span class="string">999999</span>)</div>
+  </div>
+</section>
+
+<footer>
+  <p>BigArrayList v0.2.0 · MIT License · <a href="api_reference_interactive.html">API 文档</a> · <a href="architecture_diagram.html">架构图</a></p>
+</footer>
+
+</body>
+</html>

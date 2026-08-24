@@ -1,0 +1,54 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+*.egg-link
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+ENV/
+
+# ===== 测试 / 覆盖率 =====
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+
+# ===== 项目本地依赖（沙箱内 pip --target 安装的临时工具）=====
+.deps/
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 临时文件（外部排序 / 分桶查找运行时产物）=====
+big_sort_*.tmp
+big_bucket_*.tmp
+*.tmp
+
+# ===== 基准测试报告（每次运行重新生成）=====
+benchmarks/benchmark_report.csv
+
+# ===== 调试截图 =====
+error_screenshot.png
+import_test.png

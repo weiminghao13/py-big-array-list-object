@@ -1,0 +1,313 @@
+<html style="margin:0;padding:0;">
+<div style="font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px;max-width:1200px;margin:0 auto;box-sizing:border-box;">
+
+<style>
+  .layer-title{font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin:20px 0 8px;padding-left:4px;}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 16px;cursor:pointer;transition:all .2s ease;position:relative;overflow:hidden;}
+  .card:hover{border-color:#60a5fa;background:#263548;transform:translateY(-2px);box-shadow:0 8px 24px rgba(59,130,246,.15);}
+  .card.active{border-color:#3b82f6;background:#1e3a5f;box-shadow:0 0 0 2px rgba(59,130,246,.3);}
+  .card-name{font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:4px;}
+  .card-desc{font-size:12px;color:#94a3b8;line-height:1.5;}
+  .card-tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;margin-right:4px;margin-top:6px;font-weight:600;}
+  .tag-api{background:#7c3aed33;color:#c4b5fd;}
+  .tag-core{background:#0891b233;color:#67e8f9;}
+  .tag-mixin{background:#d9770633;color:#fcd34d;}
+  .tag-algo{background:#05966933;color:#6ee7b7;}
+  .tag-util{background:#47556933;color:#cbd5e1;}
+  .tag-config{background:#db277733;color:#f9a8d4;}
+  .arrow-down{text-align:center;color:#475569;font-size:20px;margin:4px 0;}
+  .detail-panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-top:20px;display:none;}
+  .detail-panel.show{display:block;animation:fadeIn .3s ease;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+  .detail-title{font-size:18px;font-weight:700;color:#60a5fa;margin-bottom:12px;}
+  .detail-section{margin-bottom:14px;}
+  .detail-label{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+  .detail-text{font-size:13px;color:#cbd5e1;line-height:1.7;}
+  .detail-code{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px 12px;font-family:'Consolas','Monaco',monospace;font-size:12px;color:#a5f3fc;overflow-x:auto;margin-top:6px;}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .grid-4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;}
+  .grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;}
+  @media(max-width:768px){.grid-2,.grid-3,.grid-4,.grid-5{grid-template-columns:1fr;}}
+  .header{text-align:center;margin-bottom:24px;}
+  .header h1{font-size:28px;font-weight:800;color:#f1f5f9;margin:0 0 6px;}
+  .header p{font-size:14px;color:#94a3b8;margin:0;}
+  .badge{display:inline-block;font-size:11px;padding:3px 10px;border-radius:20px;margin:0 4px;font-weight:600;}
+  .badge-blue{background:#3b82f622;color:#93c5fd;border:1px solid #3b82f644;}
+  .badge-green{background:#10b98122;color:#6ee7b7;border:1px solid #10b98144;}
+  .badge-purple{background:#8b5cf622;color:#c4b5fd;border:1px solid #8b5cf644;}
+  .flow-row{display:flex;align-items:center;justify-content:center;gap:8px;margin:12px 0;flex-wrap:wrap;}
+  .flow-step{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;color:#cbd5e1;}
+  .flow-arrow{color:#475569;font-size:16px;}
+  .hint{text-align:center;font-size:12px;color:#64748b;margin-top:16px;font-style:italic;}
+</style>
+
+<div class="header">
+  <h1>BigArrayList 项目架构图</h1>
+  <p>面向大数据量场景的惰性流式列表库 · v0.2.0 · PyPI 已发布</p>
+  <div style="margin-top:10px;">
+    <span class="badge badge-blue">惰性流</span>
+    <span class="badge badge-green">多进程并行</span>
+    <span class="badge badge-purple">外部排序</span>
+    <span class="badge badge-blue">泛型类型安全</span>
+    <span class="badge badge-green">零运行时依赖</span>
+  </div>
+</div>
+
+<!-- 用户层 -->
+<div class="layer-title">用户层 · User Layer</div>
+<div class="grid-3">
+  <div class="card" onclick="showDetail('user-code')">
+    <div class="card-name">用户代码</div>
+    <div class="card-desc">pip install bigarraylist 后直接使用</div>
+    <span class="card-tag tag-api">API 消费方</span>
+  </div>
+  <div class="card" onclick="showDetail('pypi')">
+    <div class="card-name">PyPI 包</div>
+    <div class="card-desc">bigarraylist 0.2.0 · 45KB wheel</div>
+    <span class="card-tag tag-api">发布产物</span>
+  </div>
+  <div class="card" onclick="showDetail('docs')">
+    <div class="card-name">文档 & 示例</div>
+    <div class="card-desc">README / docs/ / examples/ / AGENTS.md</div>
+    <span class="card-tag tag-api">文档</span>
+  </div>
+</div>
+
+<div class="arrow-down">▼</div>
+
+<!-- API 层 -->
+<div class="layer-title">API 层 · Interface Layer (_api.py)</div>
+<div class="grid-1" style="display:grid;grid-template-columns:1fr;gap:10px;">
+  <div class="card" onclick="showDetail('bigarraylist-class')" style="border-color:#7c3aed55;">
+    <div class="card-name" style="color:#c4b5fd;">BigArrayList</div>
+    <div class="card-desc">用户接口层 · 继承 BaseBigArrayList · 参数校验 + 转发调用 · 双 API 共存（裸 generator + LazyChain 链式）· 向后兼容</div>
+    <div style="margin-top:8px;">
+      <span class="card-tag tag-api">append/remove/replace/insert</span>
+      <span class="card-tag tag-api">find/binary_search/bucket_find</span>
+      <span class="card-tag tag-api">sort(key=)/reverse/copy</span>
+      <span class="card-tag tag-api">map/filter/reduce/slice/distinct</span>
+      <span class="card-tag tag-api">lazy() 链式API</span>
+      <span class="card-tag tag-api">sample/build_index/build_buckets</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-down">▼ 继承 (extends)</div>
+
+<!-- Mixin 算子层 -->
+<div class="layer-title">算子 Mixin 层 · Operator Mixins (operators/)</div>
+<div class="grid-4">
+  <div class="card" onclick="showDetail('crud-mixin')">
+    <div class="card-name">CRUDMixin</div>
+    <div class="card-desc">增删改插算子</div>
+    <span class="card-tag tag-mixin">_append_iter</span>
+    <span class="card-tag tag-mixin">_remove_iter</span>
+    <span class="card-tag tag-mixin">_replace_iter</span>
+    <span class="card-tag tag-mixin">_insert_iter</span>
+  </div>
+  <div class="card" onclick="showDetail('stream-mixin')">
+    <div class="card-name">StreamMixin</div>
+    <div class="card-desc">流式算子 + LazyChain</div>
+    <span class="card-tag tag-mixin">_map_iter</span>
+    <span class="card-tag tag-mixin">_filter_iter</span>
+    <span class="card-tag tag-mixin">_reduce</span>
+    <span class="card-tag tag-mixin">_distinct_iter</span>
+    <span class="card-tag tag-mixin">_group_by_iter</span>
+    <span class="card-tag tag-mixin">LazyChain[T]</span>
+  </div>
+  <div class="card" onclick="showDetail('sort-mixin')">
+    <div class="card-name">SortMixin</div>
+    <div class="card-desc">排序 + 二分查找</div>
+    <span class="card-tag tag-mixin">_big_iter_sort</span>
+    <span class="card-tag tag-mixin">is_sorted</span>
+    <span class="card-tag tag-mixin">_binary_search</span>
+    <span class="card-tag tag-mixin">key= 支持</span>
+  </div>
+  <div class="card" onclick="showDetail('search-mixin')">
+    <div class="card-name">SearchMixin</div>
+    <div class="card-desc">查找 + 分桶 + 索引</div>
+    <span class="card-tag tag-mixin">_parallel_find</span>
+    <span class="card-tag tag-mixin">_bucket_find</span>
+    <span class="card-tag tag-mixin">_build_buckets</span>
+    <span class="card-tag tag-mixin">_build_index</span>
+    <span class="card-tag tag-mixin">_auto_find</span>
+  </div>
+</div>
+
+<div class="arrow-down">▼ 组合 (cooperative multiple inheritance)</div>
+
+<!-- 核心层 -->
+<div class="layer-title">核心层 · Core Layer (core/base.py)</div>
+<div class="grid-2">
+  <div class="card" onclick="showDetail('core-base')" style="border-color:#0891b255;">
+    <div class="card-name" style="color:#67e8f9;">_CoreBase[T]</div>
+    <div class="card-desc">核心基类 · __slots__ + 迭代协议 + _fresh_iter 机制 · 持有所有状态字段</div>
+    <div style="margin-top:6px;">
+      <span class="card-tag tag-core">__slots__</span>
+      <span class="card-tag tag-core">__iter__/__next__</span>
+      <span class="card-tag tag-core">_fresh_iter()</span>
+      <span class="card-tag tag-core">cycle()</span>
+      <span class="card-tag tag-core">_reverse_iter</span>
+      <span class="card-tag tag-core">_copy_iter</span>
+      <span class="card-tag tag-core">_sample</span>
+    </div>
+  </div>
+  <div class="card" onclick="showDetail('base-class')" style="border-color:#0891b255;">
+    <div class="card-name" style="color:#67e8f9;">BaseBigArrayList</div>
+    <div class="card-desc">组合类 · _CoreBase + CRUDMixin + StreamMixin + SortMixin + SearchMixin · 所有算子通过 MRO 协作</div>
+    <div class="detail-code" style="margin-top:8px;font-size:11px;">class BaseBigArrayList(_CoreBase[T], CRUDMixin[T], StreamMixin[T], SortMixin[T], SearchMixin[T])</div>
+  </div>
+</div>
+
+<div class="arrow-down">▼ 依赖 (depends on)</div>
+
+<!-- 算法层 -->
+<div class="layer-title">算法层 · Algorithms (algorithms/) · 可独立复用</div>
+<div class="grid-4">
+  <div class="card" onclick="showDetail('external-sort')">
+    <div class="card-name">external_sort</div>
+    <div class="card-desc">低内存外部排序 · streaming/block 双模式</div>
+    <span class="card-tag tag-algo">分块排序</span>
+    <span class="card-tag tag-algo">落盘</span>
+    <span class="card-tag tag-algo">多路归并</span>
+    <span class="card-tag tag-algo">key= 支持</span>
+  </div>
+  <div class="card" onclick="showDetail('bucket')">
+    <div class="card-name">BucketIndex</div>
+    <div class="card-desc">持久化分桶索引 · 建桶一次多次查询</div>
+    <span class="card-tag tag-algo">哈希分桶</span>
+    <span class="card-tag tag-algo">单桶扫描</span>
+    <span class="card-tag tag-algo">上下文管理</span>
+  </div>
+  <div class="card" onclick="showDetail('parallel')">
+    <div class="card-name">parallel.py</div>
+    <div class="card-desc">模块级可 pickle 函数 · 供子进程调用</div>
+    <span class="card-tag tag-algo">sort_chunk</span>
+    <span class="card-tag tag-algo">linear_find_in_chunk</span>
+    <span class="card-tag tag-algo">chunk_is_sorted</span>
+    <span class="card-tag tag-algo">bisect_find_in_chunk</span>
+  </div>
+  <div class="card" onclick="showDetail('sample')">
+    <div class="card-name">reservoir_sample</div>
+    <div class="card-desc">蓄水池抽样 · O(k) 内存 · 无需预知 N</div>
+    <span class="card-tag tag-algo">等概率抽样</span>
+    <span class="card-tag tag-algo">流式扫描</span>
+  </div>
+</div>
+
+<div class="arrow-down">▼ 工具支撑</div>
+
+<!-- 工具 & 配置层 -->
+<div class="layer-title">工具 & 配置层 · Utils & Config</div>
+<div class="grid-4">
+  <div class="card" onclick="showDetail('config')">
+    <div class="card-name">BigArrayConfig</div>
+    <div class="card-desc">配置对象 · frozen dataclass · 所有阈值集中可配</div>
+    <span class="card-tag tag-config">9 个可配字段</span>
+    <span class="card-tag tag-config">set_default()</span>
+  </div>
+  <div class="card" onclick="showDetail('exceptions')">
+    <div class="card-name">exceptions.py</div>
+    <div class="card-desc">自定义异常体系 · 多继承 · 向后兼容</div>
+    <span class="card-tag tag-config">BigArrayListError</span>
+    <span class="card-tag tag-config">InvalidArgumentError</span>
+    <span class="card-tag tag-config">IndexOutOfRangeError</span>
+  </div>
+  <div class="card" onclick="showDetail('scale')">
+    <div class="card-name">ScaleHelper</div>
+    <div class="card-desc">数据量级判定 + 分块大小选择</div>
+    <span class="card-tag tag-util">量级映射</span>
+    <span class="card-tag tag-util">chunk_size</span>
+  </div>
+  <div class="card" onclick="showDetail('validation')">
+    <div class="card-name">validation.py</div>
+    <div class="card-desc">参数校验工具 · 统一 use_custom 开关</div>
+    <span class="card-tag tag-util">validate_index</span>
+    <span class="card-tag tag-util">validate_max_workers</span>
+    <span class="card-tag tag-util">validate_callable</span>
+  </div>
+</div>
+
+<!-- 数据流 -->
+<div class="layer-title" style="margin-top:28px;">核心数据流 · Data Flow (以 sort 为例)</div>
+<div class="flow-row">
+  <div class="flow-step">用户调用 arr.sort()</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">BigArrayList.sort() 参数校验</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">SortMixin._big_iter_sort()</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">_CoreBase._fresh_iter() 拿独立迭代器</div>
+</div>
+<div class="flow-row">
+  <div class="flow-step" style="border-color:#05966955;color:#6ee7b7;">&lt;10万: sorted() 单进程</div>
+  <div class="flow-arrow">← 按数据量分流 →</div>
+  <div class="flow-step" style="border-color:#d9770655;color:#fcd34d;">10万~100万: 分块并行 + 内存归并</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step" style="border-color:#7c3aed55;color:#c4b5fd;">≥100万: external_sort 落盘 + streaming归并</div>
+</div>
+
+<!-- 详情面板 -->
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-title" id="detail-title">点击上方模块查看详情</div>
+  <div id="detail-content">
+    <div class="detail-text" style="color:#64748b;">点击任意模块卡片，这里会显示该模块的详细说明、关键代码和设计要点。</div>
+  </div>
+</div>
+
+<div class="hint">💡 点击任意模块卡片查看详细信息 · 架构图基于 v0.2.0 实际代码生成</div>
+
+</div>
+
+<script>
+(function(){
+  try{
+    var details = {
+      'user-code':{title:'用户代码',html:'<div class="detail-section"><div class="detail-label">使用方式</div><div class="detail-text">用户通过 pip install bigarraylist 安装后，直接 from bigarraylist import BigArrayList 使用。</div><div class="detail-code">from bigarraylist import BigArrayList\narr = BigArrayList([3,1,4,1,5,9,2,6])\nprint(list(arr.sort()))  # [1,1,2,3,4,5,6,9]</div></div>'},
+      'pypi':{title:'PyPI 包',html:'<div class="detail-section"><div class="detail-label">发布信息</div><div class="detail-text">包名: bigarraylist · 版本: 0.2.0 · Python ≥3.10 · 零运行时依赖 · MIT 许可证</div><div class="detail-code">pip install bigarraylist\n# 项目页面: https://pypi.org/project/bigarraylist/</div></div>'},
+      'docs':{title:'文档 & 示例',html:'<div class="detail-section"><div class="detail-label">文档体系</div><div class="detail-text">README.md - 项目介绍和用法 · docs/architecture.md - 架构设计 · docs/api_reference.md - API参考 · examples/demo.py - 8个可运行场景 · AGENTS.md - AI助手指南</div></div>'},
+      'bigarraylist-class':{title:'BigArrayList - 用户接口层',html:'<div class="detail-section"><div class="detail-label">设计定位</div><div class="detail-text">继承 BaseBigArrayList，在算子方法入口处做参数校验（类型+范围），然后转发给父类实现。所有公共方法签名 100% 向后兼容。</div></div><div class="detail-section"><div class="detail-label">双 API 共存</div><div class="detail-text">旧 API: .map()/.filter() 返回裸 generator（不可链式）· 新 API: .lazy() 返回 LazyChain（可链式 .filter().map().distinct().collect()）</div></div><div class="detail-section"><div class="detail-label">校验体系</div><div class="detail-text">通过 utils.validation 模块统一校验，默认抛标准异常（向后兼容），raise_custom=True 时抛自定义异常子类。</div></div>'},
+      'crud-mixin':{title:'CRUDMixin - 增删改插算子',html:'<div class="detail-section"><div class="detail-label">方法列表</div><div class="detail-text">_append_iter - 惰性追加 · _remove_iter - 惰性删除范围 · _replace_iter - 惰性替换范围 · _insert_iter - 惰性插入</div></div><div class="detail-section"><div class="detail-label">设计要点</div><div class="detail-text">所有方法都是生成器函数，全程操作 _fresh_iter() 拿的独立迭代器，不碰 self.__data，零副作用可重复调用。</div></div>'},
+      'stream-mixin':{title:'StreamMixin - 流式算子 + LazyChain',html:'<div class="detail-section"><div class="detail-label">算子方法</div><div class="detail-text">_map_iter / _filter_iter / _reduce / _slice_iter / _distinct_iter / _concat_iter / _chain_iter / _group_by_iter / _count_if</div></div><div class="detail-section"><div class="detail-label">LazyChain[T]</div><div class="detail-text">链式 API 包装器，每个算子返回新的 LazyChain，支持 .filter().map().distinct().slice().collect()。distinct() 有大数据保护（set达10万主动抛错）。</div></div><div class="detail-section"><div class="detail-label">协作契约</div><div class="detail-text">Mixin 声明 __len__/_fresh_iter/_get_config 为 raise NotImplementedError（仅用于 mypy 类型推导），实际实现由 _CoreBase 通过 MRO 提供。</div></div>'},
+      'sort-mixin':{title:'SortMixin - 排序 + 二分查找',html:'<div class="detail-section"><div class="detail-label">三档分流排序</div><div class="detail-text"><10万: 直接 sorted() 单进程 · 10万~100万: 分块并行排序 + heapq.merge 内存多路归并 · ≥100万: 调用 external_sort 落盘外部排序</div></div><div class="detail-section"><div class="detail-label">key= 支持</div><div class="detail-text">_big_iter_sort(key=func) 全链路支持 key 参数：分块排序传 key、多路归并传 key、外部排序传 key、二分查找 bisect 也传 key。</div></div><div class="detail-section"><div class="detail-label">is_sorted</div><div class="detail-text">大数据并行判断：每块内部判断局部有序 + 相邻块边界比较（前块尾≤后块头），两者同时满足才算全局有序。</div></div>'},
+      'search-mixin':{title:'SearchMixin - 查找 + 分桶 + 索引',html:'<div class="detail-section"><div class="detail-label">四种查找策略</div><div class="detail-text">_parallel_find - 流式分块多进程线性查找 · _binary_search - 先排序再 bisect（返回排序后下标）· _bucket_find - 哈希分桶+单桶扫描 · _auto_find - 根据数据量自动选策略</div></div><div class="detail-section"><div class="detail-label">持久化分桶</div><div class="detail-text">_build_buckets() 返回 BucketIndex 对象，建桶一次可多次查询，支持上下文管理器自动清理临时文件。</div></div><div class="detail-section"><div class="detail-label">二级索引</div><div class="detail-text">_build_index(key_func) 构建 dict[key] -> list[原始下标]，建好后 O(1) 判断 key 是否存在、拿到所有命中下标。</div></div>'},
+      'core-base':{title:'_CoreBase[T] - 核心基类',html:'<div class="detail-section"><div class="detail-label">状态字段 (__slots__)</div><div class="detail-text">__config - BigArrayConfig 配置 · __data - 对外迭代器（供 __next__ 使用）· __index - 当前消费位置 · __len - 数据总量 · __source - 原始数据源（int/list/tuple/迭代器）</div></div><div class="detail-section"><div class="detail-label">_fresh_iter() 机制（核心设计）</div><div class="detail-text">所有算子统一调用 self._fresh_iter() 拿一份全新的独立迭代器，全程操作局部变量，绝不碰 self.__data。self.__data 只留给 __next__ 对外 for 循环用。这样算子之间零副作用，可重复调用。</div></div><div class="detail-section"><div class="detail-label">构造时的 source 分流</div><div class="detail-text">int source: 生成 N 个全 0（大数据惰性测试用）· Sized Iterable（list/tuple）: 直接用 len，零物化 · 纯 Iterator/Generator: 必须 list() 物化才能知道长度（大数据不推荐）</div></div>'},
+      'base-class':{title:'BaseBigArrayList - 组合类',html:'<div class="detail-section"><div class="detail-label">cooperative multiple inheritance</div><div class="detail-code">class BaseBigArrayList(_CoreBase[T], CRUDMixin[T], StreamMixin[T], SortMixin[T], SearchMixin[T]):\n    pass</div></div><div class="detail-section"><div class="detail-label">设计要点</div><div class="detail-text">_CoreBase 持有所有状态字段（__slots__）+ 核心机制 · 各 Mixin 只声明方法、不声明字段（避免 __slots__ 多继承冲突）· Mixin 通过 self._fresh_iter()/len(self)/self._get_config() 与 _CoreBase 协作 · 继承 Generic[T] 仅用于 mypy 类型推导，运行时无开销</div></div>'},
+      'external-sort':{title:'external_sort - 低内存外部排序',html:'<div class="detail-section"><div class="detail-label">两阶段算法</div><div class="detail-text">阶段1: 流式读数据 → 攒够 chunk_size → 多进程排序 → 落盘临时文件 · 阶段2: 同时打开所有临时文件 → heapq.merge 多路归并 → 逐条 yield</div></div><div class="detail-section"><div class="detail-label">streaming vs block 模式</div><div class="detail-text">streaming（默认）: 阶段1逐条 pickle.dump，阶段2逐条 pickle.load，内存峰值 O(块数)≈32条元素 · block: 阶段1整块 dump，阶段2整块 load，速度快3~5倍但内存≈数据总量</div></div><div class="detail-section"><div class="detail-label">key= 支持</div><div class="detail-text">sort_chunk(chunk, key) 分块排序传 key · heapq.merge(*iters, key=key) 归并传 key · 全链路 key 一致</div></div>'},
+      'bucket':{title:'BucketIndex - 持久化分桶索引',html:'<div class="detail-section"><div class="detail-label">核心思想</div><div class="detail-text">按 key 哈希值把数据分到 N 个桶（落盘临时文件），查找时只需要扫目标桶，单次查询 O(n/N)。建桶一次 O(n)，后续多次查询成本极低。</div></div><div class="detail-section"><div class="detail-label">使用方式</div><div class="detail-code">with big.build_buckets(num_buckets=64) as idx:\n    for tgt in targets:\n        hits = list(idx.find(tgt))  # 每次只扫单桶</div></div><div class="detail-section"><div class="detail-label">资源管理</div><div class="detail-text">实现 __enter__/__exit__ 上下文管理器，退出时自动清理所有临时桶文件。owns_files=False 支持跨进程持久化复用。</div></div>'},
+      'parallel':{title:'parallel.py - 模块级可 pickle 函数',html:'<div class="detail-section"><div class="detail-label">为什么必须模块级？</div><div class="detail-text">ProcessPoolExecutor 子进程用 spawn 方式启动时，需要 pickle 函数定义。嵌套函数/lambda/实例方法无法被 pickle，必须放在模块级。</div></div><div class="detail-section"><div class="detail-label">函数列表</div><div class="detail-text">sort_chunk(args) - 对单块排序（支持 key）· linear_find_in_chunk(args) - 单块线性查找 · chunk_is_sorted(args) - 判断单块是否有序 · bisect_find_in_chunk(args) - 已排序块的二分查找</div></div><div class="detail-section"><div class="detail-label">向后兼容别名</div><div class="detail-text">保留 _sort_chunk/_linear_find_in_chunk 等旧名字（带下划线前缀），避免破坏旧代码的直接 import。</div></div>'},
+      'sample':{title:'reservoir_sample - 蓄水池抽样',html:'<div class="detail-section"><div class="detail-label">算法原理</div><div class="detail-text">从总量未知的流里随机等概率抽 k 个元素。前 k 个直接放入蓄水池，第 i 个（i>k）以 k/i 概率替换蓄水池中随机一个元素。数学保证每个元素被选中概率都是 k/N。</div></div><div class="detail-section"><div class="detail-label">复杂度</div><div class="detail-text">时间 O(N) 一遍流式扫描 · 空间 O(k) 蓄水池大小 · 无需预知总量 N</div></div>'},
+      'config':{title:'BigArrayConfig - 配置对象',html:'<div class="detail-section"><div class="detail-label">设计</div><div class="detail-text">frozen=True 的 dataclass，防止运行时被篡改。9个可配字段集中管理所有阈值，避免硬编码散落在代码里。</div></div><div class="detail-section"><div class="detail-label">关键字段</div><div class="detail-text">linear_parallel_threshold=100000 - 小于这个数不开多进程 · external_sort_threshold=1000000 - 大于这个数走外部排序 · external_sort_streaming_merge=True - 默认 streaming 低内存模式 · bucket_max_count=1024 - 最大桶数 · external_sort_chunk_target=32 - 目标分块数</div></div><div class="detail-section"><div class="detail-label">使用方式</div><div class="detail-code">cfg = BigArrayConfig(linear_parallel_threshold=50000)\narr = BigArrayList(data, config=cfg)\n# 或全局设置默认\nBigArrayConfig.set_default(linear_parallel_threshold=50000)</div></div>'},
+      'exceptions':{title:'exceptions.py - 自定义异常体系',html:'<div class="detail-section"><div class="detail-label">多继承设计</div><div class="detail-text">每个自定义异常同时继承 BigArrayListError 和对应的标准异常，兼顾精确捕获和向后兼容。</div><div class="detail-code">class BigArrayListError(Exception): pass\nclass InvalidArgumentError(BigArrayListError, ValueError): pass\nclass IndexOutOfRangeError(BigArrayListError, IndexError): pass\nclass DataSourceError(BigArrayListError, TypeError): pass</div></div><div class="detail-section"><div class="detail-label">捕获方式</div><div class="detail-text">旧代码 except ValueError: 依然能捕获（向后兼容）· 新代码 except BigArrayListError: 一网打尽 · 精确捕获 except InvalidArgumentError: 也可以</div></div>'},
+      'scale':{title:'ScaleHelper - 数据量级工具',html:'<div class="detail-section"><div class="detail-label">功能</div><div class="detail-text">数据量级判定（10万/100万/1000万）+ 分块大小选择（普通分块100~1000，外部排序目标32块）+ 通用分块迭代器 chunk_wise_processing</div></div>'},
+      'validation':{title:'validation.py - 参数校验工具',html:'<div class="detail-section"><div class="detail-label">统一校验函数</div><div class="detail-text">validate_index / validate_range / validate_max_workers / validate_num_buckets / validate_sample_k / validate_slice_arg / validate_callable / validate_iterable</div></div><div class="detail-section"><div class="detail-label">use_custom 开关</div><div class="detail-text">use_custom=False（默认）: 抛标准异常（ValueError/IndexError/TypeError），向后兼容 · use_custom=True: 抛自定义异常子类（InvalidArgumentError/IndexOutOfRangeError/DataSourceError）</div></div>'}
+    };
+
+    var panel = document.getElementById('detail-panel');
+    var titleEl = document.getElementById('detail-title');
+    var contentEl = document.getElementById('detail-content');
+    var cards = document.querySelectorAll('.card');
+
+    function showDetail(id){
+      var d = details[id];
+      if(!d) return;
+      titleEl.textContent = d.title;
+      contentEl.innerHTML = d.html;
+      panel.classList.add('show');
+      cards.forEach(function(c){c.classList.remove('active');});
+      // 找到被点击的卡片并高亮
+      event.currentTarget.classList.add('active');
+      // 滚动到详情面板
+      panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    }
+
+    // 暴露给全局
+    window.showDetail = showDetail;
+
+  }catch(e){
+    console.error('架构图交互初始化失败:', e);
+  }
+})();
+</script>
+</html>

@@ -1,0 +1,109 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigarraylist"
+version = "0.2.0"
+description = "面向大数据量场景的惰性流式列表：惰性迭代 / 并行查找 / 分块排序 / 外部排序 / 蓄水池抽样 / 二级索引"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "PyBigArrayListObject" }]
+keywords = ["big-data", "lazy-stream", "parallel", "external-sort", "generator"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []  # 零第三方运行时依赖
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bigarraylist*"]
+
+# ==================== Ruff：格式化 + Lint ====================
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["docs", "examples", "benchmarks"]
+
+[tool.ruff.lint]
+# E/F 基础；I 导入排序；UP pyupgrade；B bugbear；C4 comprehension；
+# SIM 简化；PERF 性能；RUF ruff 自有规则
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "PERF", "RUF"]
+ignore = [
+    "E501",     # 行长由 formatter 管，lint 不重复报
+    "B008",     # 默认参数里用 callable() 等是合理的
+    "RUF001",   # 中文 docstring 里的全角标点被判为歧义字符——中文项目误报
+    "RUF002",   # 同上（docstring）
+    "RUF003",   # 同上（注释）
+    # 以下三条与外部排序/分桶的磁盘文件管理固有模式冲突，全局忽略：
+    "SIM105",   # 临时文件清理用 try/except:pass 比 contextlib.suppress 更直观
+    "SIM115",   # 多路归并需把一批文件句柄交给 heapq.merge，无法套 with
+    "PERF203",  # 分块消费迭代器的 try/except StopIteration 是惯用法
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # 测试里偶尔用 assert False
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ==================== Mypy：静态类型检查 ====================
+# 0.2.0+：参数标注已补全，开启 disallow_untyped_defs + warn_return_any。
+# 剩余 # type: ignore[...] 都是 mixin 协作（attr-defined）+ TypeVar 边界
+# （type-var/return-value/assignment）等真实类型缺口，标注在源码处。
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_any_generics = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+files = ["bigarraylist"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+check_untyped_defs = true
+disallow_untyped_defs = false
+disable_error_code = ["attr-defined", "no-untyped-def", "var-annotated"]
+
+# ==================== Pytest ====================
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["tests"]
+pythonpath = ["."]  # 让子进程能 import tests.test_api._User（bucket_find 多进程 pickle）
+addopts = ["-ra", "--strict-markers", "--color=yes"]
+markers = [
+    "slow: 标记耗时较长的测试（百万级排序等）",
+]
+
+# ==================== 覆盖率 ====================
+[tool.coverage.run]
+source = ["bigarraylist"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
