@@ -52,3 +52,6 @@ benchmarks/benchmark_report.csv
 # ===== 调试截图 =====
 error_screenshot.png
 import_test.png
+
+# ===== GitHub 本地加速代理（本地工具，不入库）=====
+.ghproxy/
