@@ -17,7 +17,7 @@ from typing import Any, TypeVar
 
 from .algorithms.bucket import BucketIndex
 from .config import BigArrayConfig
-from .core.base import BaseBigArrayList
+from .core.base import BaseBigArrayList, _DiskSpillIterable
 from .operators.stream import LazyChain
 from .utils.scale import ScaleHelper
 from .utils.validation import (
@@ -73,6 +73,7 @@ class BigArrayList(BaseBigArrayList):
         *,
         config: BigArrayConfig | None = None,
         raise_custom: bool = False,
+        length: int | None = None,
     ) -> None:
         """构造 BigArrayList。
 
@@ -83,12 +84,44 @@ class BigArrayList(BaseBigArrayList):
             raise_custom: True 时校验失败抛自定义异常子类
                           （InvalidArgumentError / IndexOutOfRangeError / DataSourceError，
                           均继承 ValueError/IndexError/TypeError），False 抛标准异常
+            length:       当 source 没有 __len__（如自定义可迭代类、文件对象）时，
+                          可手动指定长度以跳过 list() 物化。
+                          要求 source 可重复迭代（非 generator/iterator）；
+                          一次性流请用 from_stream() 类方法（磁盘落盘，内存 O(1)）。
         """
         # source 是 None 时父类会抛 TypeError；这里先给清晰错误
         if source is None:
             raise TypeError("source 不能为 None，请传入 int / list / tuple / 迭代器")
         self.__raise_custom = raise_custom
-        super().__init__(source, config=config)
+        super().__init__(source, config=config, length=length)
+
+    # ==================== 替代构造器 ====================
+    @classmethod
+    def from_stream(
+        cls,
+        source: Iterable[T],
+        *,
+        config: BigArrayConfig | None = None,
+        raise_custom: bool = False,
+        length: int | None = None,
+    ) -> BigArrayList:
+        """从一次性流（generator/iterator）构造，自动磁盘落盘。
+
+        与直接 BigArrayList(generator) 的区别：
+            - 直接构造：list(source) 全量物化到内存，大数据会爆内存
+            - from_stream：边读边写临时文件，内存 O(1)，可处理远超内存的数据
+
+        落盘后数据可重复迭代（_fresh_iter 从磁盘读），所有算子正常工作。
+        元素必须可 pickle（落盘要求）。
+
+        参数：
+            source:       任意可迭代对象（通常是 generator/iterator）
+            config:       BigArrayConfig 实例；None 用默认配置
+            raise_custom: True 时抛自定义异常子类
+            length:       可选，已知数据总量；None 时落盘过程中自动统计
+        """
+        spilled = _DiskSpillIterable(source, length=length)
+        return cls(spilled, config=config, raise_custom=raise_custom)  # type: ignore[arg-type]
 
     # ==================== 校验辅助（委托 utils.validation）====================
     def _v_index(self, name: str, value: object, length: int) -> None:
@@ -329,8 +362,9 @@ class BigArrayList(BaseBigArrayList):
         self,
         max_workers: int | None = None,
         key: Callable[[T], Any] | None = None,
+        reverse: bool = False,
     ) -> Generator[T, None, None]:
-        """惰性并行排序：返回生成器，按升序逐个产出。
+        """惰性并行排序：返回生成器，按升序（或降序）逐个产出。
 
         参数：
             max_workers: 进程池并行度；None 用默认
@@ -339,6 +373,7 @@ class BigArrayList(BaseBigArrayList):
                          ⚠️ 多进程路径（中数据/大数据）要求 key 可 pickle，
                          即模块级函数或 functools.partial；lambda 在 spawn
                          模式下不可 pickle，仅小数据路径（单进程）可用 lambda。
+            reverse:     True 降序，False 升序（默认）。全链路支持（小/中/大数据）。
 
         默认 streaming 模式：归并阶段逐条 load，内存峰值 = O(块数)。
         设 BigArrayConfig(external_sort_streaming_merge=False) 走整块模式
@@ -347,7 +382,7 @@ class BigArrayList(BaseBigArrayList):
         self._v_max_workers(max_workers)
         if key is not None:
             self._v_callable("key", key)
-        return self._big_iter_sort(max_workers=max_workers, key=key)
+        return self._big_iter_sort(max_workers=max_workers, key=key, reverse=reverse)
 
     # ==================== 反转 ====================
     def reverse(self) -> Generator[T, None, None]:
@@ -430,6 +465,49 @@ class BigArrayList(BaseBigArrayList):
         """流式条件计数：统计 predicate(item) 为真的元素个数。"""
         self._v_callable("predicate", predicate)
         return self._count_if(predicate)
+
+    # ==================== 聚合（单遍 O(n)，O(1) 内存）====================
+    def min(
+        self,
+        key: Callable[[T], Any] | None = None,
+        default: T | None = None,
+    ) -> T | None:
+        """返回最小元素。空数据返回 default。
+
+        参数：
+            key:     比较键函数；None 按元素本身比较
+            default: 数据为空时的返回值
+        """
+        if key is not None:
+            self._v_callable("key", key)
+        return self._min(key=key, default=default)
+
+    def max(
+        self,
+        key: Callable[[T], Any] | None = None,
+        default: T | None = None,
+    ) -> T | None:
+        """返回最大元素。空数据返回 default。
+
+        参数：
+            key:     比较键函数；None 按元素本身比较
+            default: 数据为空时的返回值
+        """
+        if key is not None:
+            self._v_callable("key", key)
+        return self._max(key=key, default=default)
+
+    def sum(self) -> Any:
+        """求和。元素需支持 + 运算符（数值等）。空数据返回 0。"""
+        return self._sum()
+
+    def avg(self) -> float:
+        """求平均值。空数据抛 ValueError。"""
+        return self._avg()
+
+    def count(self) -> int:
+        """返回元素总数（等价于 len(self)）。"""
+        return len(self)
 
     # ==================== 链式 API（新功能，不破坏旧 API）====================
     def lazy(self) -> LazyChain[T]:

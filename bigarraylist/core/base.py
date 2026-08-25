@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import os
+import pickle
+import tempfile
 from collections.abc import Generator, Iterable, Iterator
 from typing import Any, Generic, TypeVar
 
@@ -21,6 +24,76 @@ from ..operators.sort import SortMixin
 from ..operators.stream import StreamMixin
 
 T = TypeVar("T")
+
+
+class _DiskSpillIterable(Iterable[T]):
+    """把一次性迭代器（generator/iterator）的数据全量落盘到临时文件。
+
+    构造时消费迭代器并逐条 pickle.dump 到临时文件，内存 O(1)；
+    之后 __iter__ 从磁盘读，可重复迭代——解决 generator 源无法被
+    _fresh_iter() 反复消费的问题。
+
+    与 list(source) 的区别：数据放磁盘而非内存，能处理远超内存的数据量。
+    代价：构造有磁盘 IO，且元素必须可 pickle。
+
+    生命周期：持有临时文件路径，__del__ / close() 时删除。
+    """
+
+    __slots__ = ("_length", "_path")
+
+    def __init__(self, source: Iterable[T], *, length: int | None = None) -> None:
+        self._length = length
+        tmp = tempfile.NamedTemporaryFile(suffix=".tmp", prefix="big_stream_", delete=False)
+        count = 0
+        try:
+            for item in source:
+                pickle.dump(item, tmp)
+                count += 1
+            tmp.close()
+        except BaseException:
+            tmp.close()
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            raise
+        self._path = tmp.name
+        if self._length is None:
+            self._length = count
+
+    def __iter__(self) -> Iterator[T]:
+        with open(self._path, "rb") as f:
+            while True:
+                try:
+                    yield pickle.load(f)
+                except EOFError:
+                    return
+
+    def __len__(self) -> int:
+        return self._length  # type: ignore[return-value]  # __init__ 保证非 None
+
+    def close(self) -> None:
+        """删除临时文件，幂等。"""
+        try:
+            os.unlink(self._path)
+        except OSError:
+            pass
+
+    def __del__(self) -> None:
+        self.close()
+
+
+def _is_reiterable(obj: object) -> bool:
+    """判断对象是否可重复迭代（不是 iterator/generator 这种一次性的）。
+
+    iter(obj) is iter(obj) 为 True → 是 iterator（一次性）；为 False → 是
+    可重复迭代的 container（list/tuple/range/file object 等）。
+    对标准类型无副作用（iter() 不消费元素）。
+    """
+    try:
+        return iter(obj) is not iter(obj)  # type: ignore[call-overload]
+    except TypeError:
+        return False
 
 
 class _CoreBase(Generic[T]):
@@ -44,12 +117,19 @@ class _CoreBase(Generic[T]):
     __len: int
     __source: int | Iterable[Any]
 
-    def __init__(self, source: int | Iterable[T], *, config: BigArrayConfig | None = None) -> None:
+    def __init__(
+        self,
+        source: int | Iterable[T],
+        *,
+        config: BigArrayConfig | None = None,
+        length: int | None = None,
+    ) -> None:
         """三种构造方式：
         - source 是 int：用生成器造 source 个全 0 数据（大数据惰性测试用）
         - source 是 Sized Iterable（list/tuple 等有 __len__ 的）：直接用其 len
-        - source 是纯 Iterator/Generator（没 len 的）：**必须物化才能知道长度**，
-          大数据场景不推荐——传进来前最好先过 list(...) 或者自己算好长度传 int
+        - source 是纯 Iterator/Generator（没 len 的）：
+            * 若传了 length 且源可重复迭代：用 length，零物化
+            * 否则：list(source) 物化拿长度（大数据不推荐，建议用 from_stream）
         """
         # 保存配置（None 用默认）
         self.__config = config if config is not None else BigArrayConfig.default()
@@ -64,30 +144,43 @@ class _CoreBase(Generic[T]):
                 # 优先走 __len__ 路径（list/tuple/str 等容器，零物化）
                 data_len = len(source)  # type: ignore[arg-type]
             except TypeError:
-                # 没 __len__ 的可迭代对象（包括 generator）：必须物化拿长度
-                materialized = list(source)
-                # ✅ 关键修复：source 已在 list() 时耗尽，必须更新 __source 为物化后的 list，
-                # 否则 _fresh_iter() 会返回空迭代器，所有算子产出空数据
-                self.__source = materialized
-                self.__data = iter(materialized)
-                self.__len = len(materialized)
-            else:
-                # 也要兼容 Generator（即使有 __len__ 也不能复用）
-                from collections.abc import Generator as _Gen
-
-                if isinstance(source, _Gen):
+                # 没 __len__ 的可迭代对象
+                if length is not None and _is_reiterable(source):
+                    # 用户提供了长度且源可重复迭代：跳过物化，真正惰性
+                    self.__data = iter(source)
+                    self.__len = length
+                else:
+                    # 没提供长度，或源是一次性 iterator：必须物化拿长度
                     materialized = list(source)
+                    # ✅ 关键修复：source 已在 list() 时耗尽，必须更新 __source 为物化后的 list，
+                    # 否则 _fresh_iter() 会返回空迭代器，所有算子产出空数据
                     self.__source = materialized
                     self.__data = iter(materialized)
                     self.__len = len(materialized)
-                else:
-                    self.__data = iter(source)
-                    self.__len = data_len
+            else:
+                # 有 __len__：list/tuple 等可重复迭代容器，零物化
+                self.__data = iter(source)
+                self.__len = data_len
         self.__index = 0  # 当前已消费的位置（惰性迭代用）
 
     # ===== 长度 / 索引 =====
     def __len__(self) -> int:
         return self.__len
+
+    def __repr__(self) -> str:
+        """友好表示：BigArrayList(len=1000000, source=list)。"""
+        src = self.__source
+        if isinstance(src, int):
+            src_type = "int"
+        elif isinstance(src, _DiskSpillIterable):
+            src_type = "disk-spilled"
+        elif isinstance(src, list):
+            src_type = "list"
+        elif isinstance(src, tuple):
+            src_type = "tuple"
+        else:
+            src_type = type(src).__name__
+        return f"{type(self).__name__}(len={self.__len}, source={src_type})"
 
     def __getitem__(self, index: int) -> T:
         # 大数据不支持随机访问：随机访问要求把数据全部物化进内存，
@@ -220,4 +313,10 @@ class BaseBigArrayList(_CoreBase[T], CRUDMixin[T], StreamMixin[T], SortMixin[T],
     pass
 
 
-__all__ = ["BaseBigArrayList", "BigArrayConfig", "_CoreBase", "reservoir_sample"]
+__all__ = [
+    "BaseBigArrayList",
+    "BigArrayConfig",
+    "_CoreBase",
+    "_DiskSpillIterable",
+    "reservoir_sample",
+]

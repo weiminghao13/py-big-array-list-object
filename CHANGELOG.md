@@ -3,6 +3,31 @@
 本项目所有重要变更都会记录在此文件中。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.3.0] - 2026-08-25
+
+### 新增
+- **`from_stream()` 类方法**：从一次性流（generator/iterator）构造，自动磁盘落盘，
+  内存 O(1)，可处理远超内存的数据量。落盘后数据可重复迭代，所有算子正常工作。
+- **构造函数 `length` 参数**：当 source 没有 `__len__` 但可重复迭代时（如文件对象、
+  自定义可迭代类），手动指定长度可跳过 `list()` 物化，真正惰性构造。
+- **`sort(reverse=True)`**：全链路支持降序，包括小数据（sorted）、中数据（分块并行+
+  多路归并）、大数据（external_sort）。归并阶段通过 `_ReverseWrapper` 取反比较实现。
+- **聚合方法**：`min(key=, default=)` / `max(key=, default=)` / `sum()` / `avg()` /
+  `count()`，单遍 O(n) O(1) 内存。BigArrayList 和 LazyChain 均支持。
+- **`__repr__`**：`print(arr)` 显示 `BigArrayList(len=1000000, source=list)`，
+  不再是裸内存地址。
+
+### 优化
+- **`find()` 真正惰性早停**：改用滑动窗口（workers*2 个飞行任务），按块顺序 yield，
+  调用方 break/close() 时取消所有未启动的 chunk 任务。之前是一次性提交全部 chunk，
+  早停时剩余 chunk 白跑。
+- **构造函数简化**：移除冗余的 Generator 二次检查分支（generator 不可能有 `__len__`，
+  原分支永远走不到），逻辑更清晰。
+
+### 向后兼容
+- 所有旧 API 签名不变，`BigArrayList(source)` 行为与 0.2.0 完全一致。
+- `sort_chunk` 函数兼容旧的 2 元组/1 元组调用格式。
+
 ## [Unreleased]
 
 ### 工程化

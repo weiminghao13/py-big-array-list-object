@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import bisect as _bisect_mod
 import heapq
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Generic, TypeVar
 
@@ -20,6 +20,46 @@ from ..config import BigArrayConfig
 from ..utils.scale import choose_chunk_size
 
 T = TypeVar("T")
+
+
+class _ReverseWrapper:
+    """包装元素，比较时取反，用于 heapq.merge 降序归并。
+
+    heapq.merge 只支持升序；把每块降序排列后用本类包装，
+    __lt__ 取反 → 降序序列变成"包装升序" → merge 正常工作 →
+    解包后得到全局降序结果。
+
+    key 不为 None 时，比较的是 key(item) 而非 item 本身。
+    """
+
+    __slots__ = ("key", "value")
+
+    def __init__(self, key: Any, value: Any) -> None:
+        self.key = key
+        self.value = value
+
+    def __lt__(self, other: _ReverseWrapper) -> bool:
+        return self.key > other.key  # type: ignore[no-any-return]
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _ReverseWrapper):
+            return NotImplemented
+        return self.key == other.key  # type: ignore[no-any-return]
+
+
+def _wrap_reverse(
+    it: Iterable[T], key: Callable[[T], Any] | None
+) -> Generator[_ReverseWrapper, None, None]:
+    """把迭代器元素包装成 _ReverseWrapper（用于降序归并）。"""
+    for item in it:
+        k = key(item) if key is not None else item
+        yield _ReverseWrapper(k, item)
+
+
+def _unwrap_reverse(it: Iterable[_ReverseWrapper]) -> Generator[T, None, None]:
+    """解包 _ReverseWrapper，产出原始元素。"""
+    for wrapped in it:
+        yield wrapped.value
 
 
 class SortMixin(Generic[T]):
@@ -99,6 +139,7 @@ class SortMixin(Generic[T]):
         self,
         max_workers: int | None = None,
         key: Callable[[T], Any] | None = None,
+        reverse: bool = False,
     ) -> Generator[T, None, None]:
         """大数据排序：按数据量分流。
 
@@ -113,6 +154,7 @@ class SortMixin(Generic[T]):
             max_workers: 进程池并行度；None 用默认
             key:         排序键函数（类似 ``sorted(data, key=...)``）；None 按元素本身排序
                          ⚠️ 多进程路径要求 key 可 pickle（模块级函数或 functools.partial）
+            reverse:     True 降序，False 升序（默认）。全链路支持。
 
         全程操作 _fresh_iter()（外部排序内部也用），不碰 self.__data——
         可以重复调用，不会污染实例状态。
@@ -121,7 +163,7 @@ class SortMixin(Generic[T]):
         cfg: BigArrayConfig = self._get_config()
 
         if n < cfg.linear_parallel_threshold:
-            yield from sorted(self._fresh_iter(), key=key)  # type: ignore[type-var, arg-type]
+            yield from sorted(self._fresh_iter(), key=key, reverse=reverse)  # type: ignore[type-var, arg-type]
             return
 
         # 大数据走外部排序（统一走 algorithms.external_sort）
@@ -132,6 +174,7 @@ class SortMixin(Generic[T]):
                 config=cfg,
                 max_workers=max_workers,
                 key=key,
+                reverse=reverse,
             )
             return
 
@@ -145,18 +188,25 @@ class SortMixin(Generic[T]):
             for item in data:
                 chunk.append(item)
                 if len(chunk) >= chunk_size:
-                    futures.append(pool.submit(sort_chunk, (chunk, key)))
+                    futures.append(pool.submit(sort_chunk, (chunk, key, reverse)))
                     chunk = []
             if chunk:
-                futures.append(pool.submit(sort_chunk, (chunk, key)))
+                futures.append(pool.submit(sort_chunk, (chunk, key, reverse)))
             sorted_chunks = [fut.result() for fut in futures]
 
-        yield from heapq.merge(*sorted_chunks, key=key)
+        if reverse:
+            # 每块已降序排列；用 _ReverseWrapper 包装后 heapq.merge 升序归并，
+            # 解包后即为全局降序。
+            wrapped = [_wrap_reverse(sc, key) for sc in sorted_chunks]
+            yield from _unwrap_reverse(heapq.merge(*wrapped))
+        else:
+            yield from heapq.merge(*sorted_chunks, key=key)
 
     def _external_sort(
         self,
         max_workers: int | None = None,
         key: Callable[[T], Any] | None = None,
+        reverse: bool = False,
     ) -> Generator[T, None, None]:
         """外部排序（向后兼容别名）。
 
@@ -170,6 +220,7 @@ class SortMixin(Generic[T]):
             config=cfg,
             max_workers=max_workers,
             key=key,
+            reverse=reverse,
         )
 
     def _binary_search(

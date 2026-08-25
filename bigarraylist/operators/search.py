@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+import os
+from collections import deque
 from collections.abc import Callable, Generator, Iterator
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from typing import Any, Generic, TypeVar
 
 from ..algorithms.bucket import BucketIndex, build_buckets
@@ -47,8 +49,12 @@ class SearchMixin(Generic[T]):
         """并行分块线性查找（惰性生成器）：每个进程负责一个 chunk 的线性查找。
 
         - 数据量 < config.linear_parallel_threshold：直接线性 yield（不开进程）
-        - 数据量 >= threshold：流式物化分块 + 多进程并行，按块提交顺序 yield
-        - 惰性：不收集所有结果到 list，调用方 next 一次产出一个 (下标, 元素)
+        - 数据量 >= threshold：滑动窗口并行，按块提交顺序 yield
+        - 惰性早停：调用方 break / close() 时，取消所有未启动的 chunk 任务，
+          已在跑的任务让其自然结束（结果丢弃），不会白跑全部数据
+
+        滑动窗口设计：保持最多 workers*2 个 future 在飞行，yield 一块后补一块，
+        既保证并行度又避免一次性提交全部 chunk（早停场景下浪费 CPU）。
         """
         n = len(self)
         cfg: BigArrayConfig = self._get_config()
@@ -62,28 +68,47 @@ class SearchMixin(Generic[T]):
             return
 
         chunk_size = choose_chunk_size(n)
+        workers = max_workers or (os.cpu_count() or 4)
+        window_size = workers * 2  # 保持足够的飞行任务数
 
-        # 注意：不能用 with 块——生成器要在 with 外 yield，
-        # 而 with 退出会关池。所以手动管理生命周期：try/finally 在生成器结束时 shutdown。
         pool = ProcessPoolExecutor(max_workers=max_workers)
-        try:
-            futures = []
-            chunk: list[T] = []
-            current_index = 0
+        in_flight: deque[Future[list[tuple[int, T]]]] = deque()
+        chunk: list[T] = []
+        current_index = 0
+        source_exhausted = False
+
+        def _submit_chunk() -> None:
+            """从 data 读一个 chunk 并提交到进程池。"""
+            nonlocal chunk, current_index, source_exhausted
+            chunk = []
             for item in data:
                 chunk.append(item)
                 if len(chunk) >= chunk_size:
-                    futures.append(
-                        pool.submit(linear_find_in_chunk, (chunk, target, current_index))
-                    )
-                    current_index += len(chunk)
-                    chunk = []
-            if chunk:
-                futures.append(pool.submit(linear_find_in_chunk, (chunk, target, current_index)))
+                    break
+            if not chunk:
+                source_exhausted = True
+                return
+            fut = pool.submit(linear_find_in_chunk, (chunk, target, current_index))
+            in_flight.append(fut)
+            current_index += len(chunk)
 
-            # 按块提交顺序 yield 结果（保留下标单调递增）
-            for fut in futures:
+        def _fill_window() -> None:
+            """补充飞行任务直到窗口满或数据源耗尽。"""
+            while len(in_flight) < window_size and not source_exhausted:
+                _submit_chunk()
+
+        try:
+            _fill_window()
+            while in_flight:
+                fut = in_flight.popleft()
                 yield from fut.result()
+                _fill_window()  # 产出一块后补一块
+        except GeneratorExit:
+            # 调用方停止消费：取消所有未完成的 future，然后重新抛出
+            for fut in in_flight:
+                if not fut.done():
+                    fut.cancel()
+            raise
         finally:
             pool.shutdown(wait=False)
 

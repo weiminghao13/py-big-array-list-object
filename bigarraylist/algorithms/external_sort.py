@@ -32,6 +32,41 @@ from .parallel import sort_chunk
 
 T = TypeVar("T")
 
+
+class _ReverseWrapper:
+    """包装元素，比较时取反，用于 heapq.merge 降序归并（external_sort 内部用）。
+
+    与 operators/sort.py 中的同名类功能一致，此处独立定义避免循环导入。
+    """
+
+    __slots__ = ("key", "value")
+
+    def __init__(self, key: Any, value: Any) -> None:
+        self.key = key
+        self.value = value
+
+    def __lt__(self, other: _ReverseWrapper) -> bool:
+        return self.key > other.key  # type: ignore[no-any-return]
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _ReverseWrapper):
+            return NotImplemented
+        return self.key == other.key  # type: ignore[no-any-return]
+
+
+def _wrap_reverse(
+    it: Iterable[T], key: Callable[[T], Any] | None
+) -> Generator[_ReverseWrapper, None, None]:
+    for item in it:
+        k = key(item) if key is not None else item
+        yield _ReverseWrapper(k, item)
+
+
+def _unwrap_reverse(it: Iterable[_ReverseWrapper]) -> Generator[T, None, None]:
+    for wrapped in it:
+        yield wrapped.value
+
+
 # 双缓冲流水线深度：阶段 1 同时最多保持 2 个 chunk 在飞行
 # （1 个在 worker 中排序 + 1 个在主进程读取/落盘）。
 # 排序 N 与 "读 N+1 + 落 N-1" 并行，并行度从 1 提升到 2，
@@ -86,6 +121,7 @@ def external_sort(
     config: BigArrayConfig | None = None,
     max_workers: int | None = None,
     key: Callable[[T], Any] | None = None,
+    reverse: bool = False,
 ) -> Generator[T, None, None]:
     """外部排序（External Sort）：分块排序 + 落盘 + 多路归并。
 
@@ -98,8 +134,9 @@ def external_sort(
                       None 按元素本身排序。
                       ⚠️ 多进程路径要求 key 可 pickle（模块级函数或 functools.partial，
                       lambda 在 spawn 模式下不可 pickle）
+        reverse:      True 降序，False 升序（默认）。
 
-    返回：生成器，按 key 的非降序逐条产出已排序元素。
+    返回：生成器，按 key 的非降序（或非升序 if reverse）逐条产出已排序元素。
 
     内存模型（streaming 模式，默认）：
         - 阶段 1：双缓冲流水线排序 + 逐条落盘。submit 一块后立即继续读下一块，
@@ -160,12 +197,12 @@ def external_sort(
                 for item in data:
                     chunk.append(item)
                     if len(chunk) >= chunk_size:
-                        in_flight.append(pool.submit(sort_chunk, (chunk, key)))
+                        in_flight.append(pool.submit(sort_chunk, (chunk, key, reverse)))
                         chunk = []
                         if len(in_flight) >= _BUFFER_DEPTH:
                             _dump_chunk(in_flight.popleft().result())
                 if chunk:  # 末尾不足一块的也要排
-                    in_flight.append(pool.submit(sort_chunk, (chunk, key)))
+                    in_flight.append(pool.submit(sort_chunk, (chunk, key, reverse)))
                 # 排空飞行队列
                 while in_flight:
                     _dump_chunk(in_flight.popleft().result())
@@ -182,7 +219,12 @@ def external_sort(
         try:
             files.extend(open(path, "rb") for path in temp_paths)
             file_iters: list[Generator[T, None, None]] = [_file_iter_cls(f) for f in files]
-            yield from heapq.merge(*file_iters, key=key)  # type: ignore[arg-type]
+            if reverse:
+                # 每块已降序排列；包装后 heapq.merge 升序归并，解包后全局降序
+                wrapped = [_wrap_reverse(it, key) for it in file_iters]
+                yield from _unwrap_reverse(heapq.merge(*wrapped))
+            else:
+                yield from heapq.merge(*file_iters, key=key)  # type: ignore[arg-type]
         finally:
             for f in files:
                 try:

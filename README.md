@@ -6,8 +6,8 @@
 零第三方运行时依赖（只用标准库）。核心思想是**惰性流**——数据不一次性物化进内存，
 算子组合、按需产出，从而在内存可控的前提下处理远超内存的数据量。
 
-> 版本：0.2.0（重构为四层包结构 + 链式 API + 低内存外部排序 + 持久化分桶；
-> 旧 API 100% 向后兼容）
+> 版本：0.3.0（构造函数惰性化 + from_stream 磁盘落盘 + find 真正惰性早停 +
+> sort reverse + min/max/sum/avg 聚合 + __repr__；旧 API 100% 向后兼容）
 
 ## 安装
 
@@ -61,7 +61,9 @@ with arr.build_buckets() as idx:
 | 蓄水池抽样 | `sample` | O(k) 内存，无需预知总量 |
 | 二级索引 | `build_index` | `dict[key] -> list[下标]`，O(1) 判定 |
 | 统一查找 | `auto_find` | 按数据量自动选线性 / 分桶 |
-| 排序 | `sort` | 三级分流：<10w 直排 / 10w~100w 内存多进程 / ≥100w 外部排序 |
+| 排序 | `sort` | 三级分流：<10w 直排 / 10w~100w 内存多进程 / ≥100w 外部排序；支持 `reverse=True` |
+| **流式构造（新）** | `from_stream` / `length=` | generator 不再强制物化；`from_stream()` 磁盘落盘内存 O(1)；`length=` 跳过 list() |
+| **聚合（新）** | `min`/`max`/`sum`/`avg`/`count` | 单遍 O(n) O(1) 内存，支持 key 参数 |
 | 流式算子（裸生成器） | `map`/`filter`/`reduce`/`slice`/`distinct`/`concat`/`chain`/`group_by`/`count_if` | 全惰性、非物化，向后兼容 |
 | **链式算子（新）** | `.lazy()` → `LazyChain` | `.filter().map().distinct().collect()` 链式组合 |
 | **配置对象（新）** | `BigArrayConfig` | 所有阈值可调，外部排序模式 / 桶上限 / 并行阈值 |

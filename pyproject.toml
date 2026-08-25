@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bigarraylist"
-version = "0.2.0"
+version = "0.3.0"
 description = "面向大数据量场景的惰性流式列表：惰性迭代 / 并行查找 / 分块排序 / 外部排序 / 蓄水池抽样 / 二级索引"
 readme = "README.md"
 requires-python = ">=3.10"

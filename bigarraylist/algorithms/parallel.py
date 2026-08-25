@@ -23,16 +23,19 @@ def linear_find_in_chunk(args: tuple[list[T], T, int]) -> list[tuple[int, T]]:
 def sort_chunk(args: tuple[Any, ...]) -> list[T]:
     """对单个 chunk 排序，返回新列表（不修改原 chunk）。
 
-    args 形如 ``(chunk, key)``；``key=None`` 表示按元素本身排序。
-    向后兼容：也接受旧式 ``(chunk,)`` 一元组（等价于 ``key=None``）。
+    args 形如 ``(chunk, key, reverse)``（0.3.0+）；
+    向后兼容也接受 ``(chunk, key)``（reverse=False）和 ``(chunk,)``（key=None, reverse=False）。
     """
-    if len(args) == 2:
+    if len(args) == 3:
+        chunk, key, reverse = args
+    elif len(args) == 2:
         chunk, key = args
+        reverse = False
     else:
-        # 旧式 (chunk,) 调用（_sort_chunk 别名的遗留调用方）
         (chunk,) = args
         key = None
-    return sorted(chunk, key=key)
+        reverse = False
+    return sorted(chunk, key=key, reverse=reverse)
 
 
 def chunk_is_sorted(args: tuple[list[T]]) -> bool:

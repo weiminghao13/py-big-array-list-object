@@ -16,7 +16,7 @@ from __future__ import annotations
 import functools
 import itertools
 from collections.abc import Callable, Generator, Iterable, Iterator
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from ..config import BigArrayConfig
 from ..utils.scale import HUNDRED_THOUSAND
@@ -188,6 +188,83 @@ class StreamMixin(Generic[T]):
                 count += 1
         return count
 
+    # ==================== 聚合（单遍 O(n)，O(1) 内存）====================
+    def _min(
+        self,
+        key: Callable[[T], Any] | None = None,
+        default: T | None = None,
+    ) -> T | None:
+        """返回最小元素。空数据返回 default。
+
+        key 不为 None 时比较 key(item)，但返回的是原始元素（不是 key）。
+        """
+        it = self._fresh_iter()
+        if key is None:
+            try:
+                m: T = next(it)
+            except StopIteration:
+                return default
+            for item in it:
+                if item < m:  # type: ignore[operator]
+                    m = item
+            return m
+        try:
+            m = next(it)
+            mk = key(m)
+        except StopIteration:
+            return default
+        for item in it:
+            ik = key(item)
+            if ik < mk:
+                m = item
+                mk = ik
+        return m
+
+    def _max(
+        self,
+        key: Callable[[T], Any] | None = None,
+        default: T | None = None,
+    ) -> T | None:
+        """返回最大元素。空数据返回 default。
+
+        key 不为 None 时比较 key(item)，但返回的是原始元素（不是 key）。
+        """
+        it = self._fresh_iter()
+        if key is None:
+            try:
+                m: T = next(it)
+            except StopIteration:
+                return default
+            for item in it:
+                if item > m:  # type: ignore[operator]
+                    m = item
+            return m
+        try:
+            m = next(it)
+            mk = key(m)
+        except StopIteration:
+            return default
+        for item in it:
+            ik = key(item)
+            if ik > mk:
+                m = item
+                mk = ik
+        return m
+
+    def _sum(self) -> T:
+        """求和。元素需支持 + 运算符。空数据返回 0。"""
+        total: Any = 0
+        for item in self._fresh_iter():
+            total += item
+        return total  # type: ignore[no-any-return]
+
+    def _avg(self) -> float:
+        """求平均值。空数据抛 ValueError。"""
+        n = len(self)
+        if n == 0:
+            raise ValueError("avg() of empty iterable")
+        return self._sum() / n  # type: ignore[operator]
+
     # ==================== 链式 API 入口 ====================
     def lazy(self) -> LazyChain[T]:
         """切换到链式 API：返回包装 self._fresh_iter() 的 LazyChain。
@@ -318,6 +395,82 @@ class LazyChain(Generic[T]):
     def count(self) -> int:
         """统计元素总数。"""
         return sum(1 for _ in self)
+
+    def min(
+        self,
+        key: Callable[[T], Any] | None = None,
+        default: T | None = None,
+    ) -> T | None:
+        """返回最小元素。空数据返回 default。"""
+        if key is None:
+            it = iter(self)
+            try:
+                m: T = next(it)
+            except StopIteration:
+                return default
+            for item in it:
+                if item < m:  # type: ignore[operator]
+                    m = item
+            return m
+        it = iter(self)
+        try:
+            m = next(it)
+            mk = key(m)
+        except StopIteration:
+            return default
+        for item in it:
+            ik = key(item)
+            if ik < mk:
+                m = item
+                mk = ik
+        return m
+
+    def max(
+        self,
+        key: Callable[[T], Any] | None = None,
+        default: T | None = None,
+    ) -> T | None:
+        """返回最大元素。空数据返回 default。"""
+        if key is None:
+            it = iter(self)
+            try:
+                m: T = next(it)
+            except StopIteration:
+                return default
+            for item in it:
+                if item > m:  # type: ignore[operator]
+                    m = item
+            return m
+        it = iter(self)
+        try:
+            m = next(it)
+            mk = key(m)
+        except StopIteration:
+            return default
+        for item in it:
+            ik = key(item)
+            if ik > mk:
+                m = item
+                mk = ik
+        return m
+
+    def sum(self) -> T:
+        """求和。元素需支持 + 运算符。空数据返回 0。"""
+        total: Any = 0
+        for item in self:
+            total += item
+        return total  # type: ignore[no-any-return]
+
+    def avg(self) -> float:
+        """求平均值。空数据抛 ValueError。"""
+        total: Any = 0
+        count = 0
+        for item in self:
+            total += item
+            count += 1
+        if count == 0:
+            raise ValueError("avg() of empty iterable")
+        return total / count  # type: ignore[no-any-return]
 
     def collect(self) -> list[T]:
         """物化为 list（终结算子）。"""
