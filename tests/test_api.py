@@ -646,8 +646,8 @@ def test_auto_find_small_uses_linear(small):
     assert sorted(result) == sorted(baseline)
 
 
-def test_auto_find_big_uses_bucket(rng, big_n):
-    """auto_find 大数据：走分桶分支，命中等于 find。"""
+def test_auto_find_big_uses_linear(rng, big_n):
+    """auto_find 大数据：命中等于 find，不支付单次建桶成本。"""
     data = [rng.randint(0, 100) for _ in range(big_n)]
     arr = BigArrayList(data)
     baseline = dict(arr.find(50))
@@ -656,10 +656,70 @@ def test_auto_find_big_uses_bucket(rng, big_n):
     assert result == baseline
 
 
+def test_auto_find_never_builds_buckets(monkeypatch):
+    from bigarraylist import BigArrayConfig
+
+    def fail_bucket_find(self, *args, **kwargs):
+        raise AssertionError("单次 auto_find 不应建桶")
+
+    monkeypatch.setattr(BigArrayList, "_bucket_find", fail_bucket_find)
+    cfg = BigArrayConfig(linear_parallel_threshold=2)
+    arr = BigArrayList(["a1", "b2", "a3", "c4"], config=cfg)
+    assert list(arr.auto_find("a1", num_buckets=8)) == [(0, "a1")]
+
+
+def test_auto_find_with_key_func_keeps_key_semantics():
+    from bigarraylist import BigArrayConfig
+
+    cfg = BigArrayConfig(linear_parallel_threshold=2)
+    arr = BigArrayList(["a1", "b2", "a3", "c4"], config=cfg)
+    hits = list(arr.auto_find("a-target", key_func=lambda value: value[0]))
+    assert hits == [(0, "a1"), (2, "a3")]
+
+
 def test_auto_find_no_state_pollution():
     """auto_find 不污染实例状态：调完后再 for 循环数据完整。"""
-    data = list(range(150_000))  # >= 十万，走分桶分支
+    data = list(range(150_000))
     arr = BigArrayList(data)
     hits = list(arr.auto_find(50, num_buckets=8))
     assert all(v == 50 for _, v in hits)
     assert list(arr) == data
+
+
+def test_avg_reuses_sum_fast_path(monkeypatch):
+    arr = BigArrayList([1, 2, 3, 4])
+    calls = 0
+    original_sum = BigArrayList.sum
+
+    def counted_sum(self):
+        nonlocal calls
+        calls += 1
+        return original_sum(self)
+
+    monkeypatch.setattr(BigArrayList, "sum", counted_sum)
+    assert arr.avg() == 2.5
+    assert calls == 1
+
+
+def test_avg_empty_error_unchanged():
+    with pytest.raises(ValueError, match="avg\\(\\) of empty iterable"):
+        BigArrayList([]).avg()
+
+
+def test_bucket_file_buffer_size_is_configurable(monkeypatch):
+    from bigarraylist import BigArrayConfig, build_buckets
+
+    observed_sizes = []
+    original_temp_file = tempfile.NamedTemporaryFile
+
+    def recording_temp_file(*args, **kwargs):
+        observed_sizes.append(kwargs.get("buffering"))
+        return original_temp_file(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", recording_temp_file)
+    cfg = BigArrayConfig(bucket_file_buffer_size=1024)
+    with build_buckets(range(100), 100, num_buckets=8, config=cfg) as idx:
+        assert list(idx.find(7)) == [(7, 7)]
+    assert observed_sizes
+    assert set(observed_sizes) == {1024}
+    assert BigArrayConfig().bucket_file_buffer_size == 64 * 1024

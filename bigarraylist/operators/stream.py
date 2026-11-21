@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import functools
 import itertools
+import os
+import tempfile
 from collections.abc import Callable, Generator, Iterable, Iterator
 from typing import Any, Generic, TypeVar
 
+from ..algorithms.bucket import _choose_num_buckets
+from ..algorithms.fileio import batched_file_iter, dump_batches
 from ..config import BigArrayConfig
 from ..utils.scale import HUNDRED_THOUSAND
 
@@ -93,19 +97,33 @@ class StreamMixin(Generic[T]):
         yield from itertools.islice(self._fresh_iter(), start, stop, step)
 
     def _distinct_iter(self) -> Generator[T, None, None]:
-        """去重：保留每个元素的首次出现。
+        """通用去重路径；输出顺序由所选算法决定。
 
         按数据量分流：
-            - 小数据（< 10 万）：set 记录已见元素，O(n) 时间 O(k) 内存
-            - 大数据：先 sort 排序，再相邻去重
-              O(n log n) 时间，内存可控（排序阶段同 sort）
+            - 小数据（< 10 万）：set 记录已见元素，保留首次出现顺序
+            - 10 万 ~ external_sort_threshold：内存排序去重（零 IO）
+            - >= external_sort_threshold 且 distinct_hash_bucketing_enabled（默认）：
+              哈希分桶去重（P1-1）——流式分桶落盘，每桶 set 去重后按桶
+              顺序产出；O(n) 时间，内存 O(桶内不同元素数)
+              ⚠️ 不保序（与排序去重不同）；桶内保留首次出现相对顺序
+            - >= external_sort_threshold 且关闭分桶：外部排序去重，
+              O(n log n) 时间 + 全量落盘，产出有序
 
         全程操作 _fresh_iter()，不碰 self.__data。
         """
         n = len(self)
-        # 大数据走排序去重路径
+        # 分桶哈希去重适合"不同元素多、真正吃外部排序"的场景：
+        # 数据可整体进内存时，单进程 sorted 全程 C 速度，分桶落盘反而亏 IO。
+        # 这里要求 n 达到外部排序阈值才走分桶；10 万 ~ 外部排序阈值之间
+        # 走内存排序去重（仍 O(n log n) 但零 IO，实测更快）。
+        if (
+            n >= self._get_config().external_sort_threshold
+            and self._get_config().distinct_hash_bucketing_enabled
+        ):
+            yield from self._hash_bucket_distinct()
+            return
         if n >= HUNDRED_THOUSAND:
-            # _big_iter_sort 由 SortMixin 提供（MRO 中 SortMixin 在 StreamMixin 之后）
+            # 排序去重路径（_big_iter_sort 由 SortMixin 提供，MRO 中在后）
             sorted_iter = self._big_iter_sort()  # type: ignore[attr-defined]
             sentinel = object()
             prev: object = sentinel
@@ -121,6 +139,88 @@ class StreamMixin(Generic[T]):
             if item not in seen:
                 seen.add(item)
                 yield item
+
+    def _hash_bucket_distinct(self) -> Generator[T, None, None]:
+        """P1-1：哈希分桶去重大数据路径（O(n)，省掉 O(n log n) 排序）。
+
+        阶段 1：流式分桶落盘——hash(item) % 桶数决定桶，攒满一批按批量帧
+          格式落盘（复用 fileio 的 P0-1 设施），内存 O(batch_size)
+        阶段 2：逐桶 load 进内存 set 去重，按桶顺序产出
+          （桶内保留首次出现相对顺序；整体不保序）
+
+        与 build_buckets 的区别：只落元素本身，不落 (下标, key, 元素)
+        三元组——去重不需要下标和 key，省 3 倍 pickle IO。
+        内存峰值 = 最大单桶不同元素数，由 sqrt(n) 桶数摊薄。
+        """
+        cfg = self._get_config()
+        num_buckets = _choose_num_buckets(len(self), cfg.bucket_max_count)
+        batch_size = cfg.pickle_batch_size
+        file_buffer_size = cfg.bucket_file_buffer_size
+
+        bufs: list[list[T]] = [[] for _ in range(num_buckets)]
+        paths: list[str | None] = [None] * num_buckets
+        files: list[Any] = [None] * num_buckets
+        try:
+            # 阶段 1：流式分桶（惰性流，一遍读完）
+            for item in self._fresh_iter():
+                b = hash(item) % num_buckets
+                buf = bufs[b]
+                buf.append(item)
+                if len(buf) >= batch_size:
+                    if files[b] is None:
+                        tmp = tempfile.NamedTemporaryFile(
+                            suffix=".tmp",
+                            prefix=f"big_distinct_{b}_",
+                            delete=False,
+                            buffering=file_buffer_size,
+                        )
+                        paths[b] = tmp.name
+                        files[b] = tmp
+                    dump_batches(buf, files[b], batch_size)
+                    bufs[b] = []
+            # 冲刷所有桶的残余缓冲（桶数据量可能小于一个批）
+            for b in range(num_buckets):
+                if bufs[b]:
+                    if files[b] is None:
+                        tmp = tempfile.NamedTemporaryFile(
+                            suffix=".tmp",
+                            prefix=f"big_distinct_{b}_",
+                            delete=False,
+                            buffering=file_buffer_size,
+                        )
+                        paths[b] = tmp.name
+                        files[b] = tmp
+                    dump_batches(bufs[b], files[b], batch_size)
+                    bufs[b] = []
+            for b in range(num_buckets):
+                if files[b] is not None:
+                    files[b].close()
+                    files[b] = None
+
+            # 阶段 2：逐桶 set 去重（提前 break 时 finally 兜底清理）
+            for b in range(num_buckets):
+                path = paths[b]
+                if path is None:
+                    continue
+                seen: set[T] = set()
+                with open(path, "rb", buffering=file_buffer_size) as f:
+                    for item in batched_file_iter(f):
+                        if item not in seen:
+                            seen.add(item)
+                            yield item
+        finally:
+            for f in files:
+                if f is not None:
+                    try:
+                        f.close()
+                    except Exception:
+                        pass
+            for p in paths:
+                if p is not None:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
 
     def _concat_iter(self, other: Iterable[T]) -> Generator[T, None, None]:
         """把 self 和 other 首尾相接，惰性产出。
@@ -374,12 +474,36 @@ class LazyChain(Generic[T]):
         return LazyChain(_distinct_gen())
 
     def concat(self, other: Iterable[T]) -> LazyChain[T]:
-        """首尾相接 self 和 other，返回新 LazyChain。"""
+        """首尾相接 self 和 other，返回新 LazyChain。
+
+        other 是 BaseBigArrayList 实例时用 other._fresh_iter()（零副作用）；
+        直接 chain 会走对方 __iter__ → __data，污染其对外迭代状态。
+        """
+        try:
+            from ..core.base import BaseBigArrayList
+
+            if isinstance(other, BaseBigArrayList):
+                other = other._fresh_iter()
+        except ImportError:
+            pass
         return LazyChain(itertools.chain(self, other))
 
     def chain(self, *others: Iterable[T]) -> LazyChain[T]:
-        """链式合并多个 others，返回新 LazyChain。"""
-        return LazyChain(itertools.chain(self, *others))
+        """链式合并多个 others，返回新 LazyChain。
+
+        BaseBigArrayList 实例同样走 _fresh_iter()（零副作用），理由同 concat。
+        """
+        try:
+            from ..core.base import BaseBigArrayList
+        except ImportError:
+            BaseBigArrayList = None  # type: ignore[misc, assignment]
+        resolved: list[Iterable[T]] = []
+        for o in others:
+            if BaseBigArrayList is not None and isinstance(o, BaseBigArrayList):
+                resolved.append(o._fresh_iter())
+            else:
+                resolved.append(o)
+        return LazyChain(itertools.chain(self, *resolved))
 
     # ===== 终结算子（消费迭代器，返回值）=====
     def reduce(self, func: Callable[[U, T], U], initial: U | None = None) -> U:

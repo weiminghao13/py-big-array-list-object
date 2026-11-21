@@ -32,6 +32,13 @@ $env:PYTHONPATH=".deps;."; python -m mypy bigarraylist; .deps\bin\ruff.exe check
 
 CI（`.github/workflows/ci.yml`）在 Python 3.10/3.11/3.12 (ubuntu) + 3.12 (windows) 上跑同样的 ruff/mypy/pytest + 覆盖率。
 
+Cython 快路径（`_fast/*.pyx` → `*.pyd`）改了 `.pyx` 后必须重编，否则 `_fast` 静默回退纯 Python：
+
+```powershell
+# PATH 上的 python 是沙箱内嵌解释器（无 Python.h），编译必须用带头文件的解释器
+C:\Users\浩浩\AppData\Local\Programs\Python\Python314\python.exe setup_fast.py build_ext --inplace
+```
+
 ## 2. 架构总览
 
 四层包结构，自下而上：
@@ -84,19 +91,21 @@ class BaseBigArrayList(_CoreBase[T], CRUDMixin[T], StreamMixin[T], SortMixin[T],
 ### 3.5 惰性流不随机访问
 - `__getitem__` 主动抛 `NotImplementedError`——大数据不支持随机访问（随机访问要求全部物化进内存）
 - 要取第 N 个元素用 `itertools.islice(stream, N, None)` 流式跳过
-- 反向迭代 `_reverse_iter` 对非 int 源会物化（这是反向语义的固有代价，不是缺陷）
+- 反向迭代 `_reverse_iter` **不物化**：仅支持 int 与 `reversed()` 可用的容器（list/tuple/str/range）；set、`from_stream` 落盘流等直接抛 TypeError（反向需全量读入内存，与低内存设计冲突，拒绝优于静默物化）。`copy()` 则支持任何可重复迭代的源
 
 ### 3.6 向后兼容红线
 - `from bigarraylist import BigArrayList` 不能变
 - 旧 `.map()` / `.filter()` / `.sort()` 返回**裸 generator**（不可链式）——重构前行为，零改动
 - 新功能（`.lazy()` / `BigArrayConfig` / `build_buckets` / 异常体系）层叠在旧 API 之上，不破坏旧调用
 
-### 3.7 三级排序分流
-- `< 100k`：直接 `sorted()` 单进程
-- `100k ~ 1M`：分块并行排序 + 内存多路归并（`heapq.merge`）
-- `>= 1M`：外部排序（落盘 + 多路归并）
-- 外部排序默认 streaming 模式（逐条 load，内存峰值 O(块数)）；block 模式（整块 load，内存 ≈ 数据总量，快 3~5 倍）通过 `BigArrayConfig(external_sort_streaming_merge=False)` opt-in
+### 3.7 排序与数值快路
+- list/tuple 纯数值源优先复用 `_fast` 紧凑数组：排序、`binary_search`、`sum`/`avg`、`distinct`、`is_sorted` 不进入通用阈值分流
+- 通用路径默认 `< 1M` 直接 `sorted()`；`memory_parallel_sort_enabled=True` 时才启用内存并行分块；`>= 1M` 走外部排序
+- 外部排序默认 streaming 模式；同类型纯数值块用 `merge_ops.pyx` C 多路归并，混合/非数值块回退 `heapq.merge`
+- block 模式（内存 ≈ 数据总量，快 3~5 倍）通过 `BigArrayConfig(external_sort_streaming_merge=False)` opt-in
 - 块大小由 `choose_external_sort_chunk_size` 决定：目标 32 块，单块 100k~5M
+- 分桶文件缓冲独立使用 `bucket_file_buffer_size`（默认 64KB），不要改回通用 `IO_BUFFER_SIZE`（8MB），否则数百桶会占数 GB
+- 数值 `distinct()` 返回首次出现下标对应的原对象；含 NaN 必须回退 Python，不能用 C 相等语义覆盖对象身份语义
 
 ### 3.8 mypy 严格模式 + 已知 type:ignore 码
 - `disallow_untyped_defs=true` + `warn_return_any=true` 已开，所有函数必须全标注
@@ -114,9 +123,10 @@ class BaseBigArrayList(_CoreBase[T], CRUDMixin[T], StreamMixin[T], SortMixin[T],
 
 1. `ruff check` + `ruff format --check` 通过
 2. `mypy bigarraylist` 0 errors（注意 `warn_unused_ignores=true`：删代码后 type:ignore 可能变 unused，要清掉）
-3. `pytest tests` 全绿（46+ 测试）
+3. `pytest tests` 全绿（130+ 测试）
 4. `python examples/demo.py` 8 个场景全跑通
 5. 改了 mixin/`_CoreBase` 时，额外验证多进程路径（bucket_find / external_sort）——Windows spawn 会暴露 pickle 问题
+6. 改了 `.pyx` 后重编并验证磁盘数值流；性能复测用 `python benchmarks/benchmark.py --hotspots`（计时不启用 tracemalloc，Python 内存独立复测）
 
 ## 5. 关键文档
 

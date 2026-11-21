@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
+bigarraylist/_fast/*.c
 *.egg
 *.egg-info/
 *.egg-link

@@ -76,10 +76,10 @@ class BaseBigArrayList(_CoreBase, CRUDMixin, StreamMixin, SortMixin, SearchMixin
 | 方法 | 是否排序 | 返回下标 | 建桶 | 适合场景 |
 | --- | --- | --- | --- | --- |
 | `find` | 否 | 原始下标 | 否 | 单次 / 少量查找，惰性、可早停 |
-| `binary_search` | 是（先排序） | 排序后下标 | 否 | 同批数据多次查找（一次排序 + 多次 O(log n)） |
+| `binary_search` | 是（每次调用先排序） | 排序后下标 | 否 | 数值源复用 C 排序快路；反复 bisect 可自行复用有序 list |
 | `bucket_find` | 否 | 原始下标 | **每次重建** | 单次分桶查找（语义同 find，哈希分桶加速） |
 | `build_buckets` → `BucketIndex.find` | 否 | 原始下标 | **建一次复用** | 同批数据多次查找，建桶一次 O(n) 后每次 O(n/N) |
-| `auto_find` | 否 | 原始下标 | 按量自动 | 不想自己选策略 |
+| `auto_find` | 否 | 原始下标 | 否 | 单次查询直接线性/并行查找 |
 
 > `bucket_find` 与 `build_buckets` 的关键区别：`bucket_find` 每次调用都重建桶
 > （保持零副作用），多次查询无加速；`build_buckets` 返回持久化 `BucketIndex`，
@@ -123,11 +123,12 @@ with arr.build_buckets(key_func=lambda u: u.id) as idx:
 
 ```python
 cfg = BigArrayConfig(
-    linear_parallel_threshold=100_000,   # 并行查找触发阈值
+    linear_parallel_threshold=1_000_000,  # 并行查找触发阈值
     external_sort_threshold=1_000_000,    # 外部排序触发阈值
     external_sort_streaming_merge=True,   # 外部排序归并模式
     external_sort_chunk_target=32,        # 目标块数
     bucket_max_count=1024,                # 桶数上限（文件描述符约束）
+    bucket_file_buffer_size=64 * 1024,     # 每桶文件缓冲（字节）
 )
 arr = BigArrayList(data, config=cfg)
 ```

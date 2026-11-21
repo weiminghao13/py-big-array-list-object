@@ -39,9 +39,14 @@ def sort_chunk(args: tuple[Any, ...]) -> list[T]:
 
 
 def chunk_is_sorted(args: tuple[list[T]]) -> bool:
-    """判断单个 chunk 是否升序（模块级，供子进程 pickle 调用）。"""
+    """判断单个 chunk 是否升序（模块级，供子进程 pickle 调用）。
+
+    实现用 ``chunk == sorted(chunk)`` 而非纯 Python 索引循环：
+    Timsort 对近似有序输入是 O(n)，且比较全程 C 速度，
+    比逐元素字节码循环快一个数量级以上（P0-3）。
+    """
     (chunk,) = args
-    return all(chunk[i] <= chunk[i + 1] for i in range(len(chunk) - 1))  # type: ignore[operator]
+    return chunk == sorted(chunk)  # type: ignore[type-var]
 
 
 def bisect_find_in_chunk(args: tuple[list[T], T, int]) -> list[tuple[int, T]]:

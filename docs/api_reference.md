@@ -51,7 +51,7 @@ BigArrayList(source, *, config=None, raise_custom=False)
 | `build_buckets(key_func=None, num_buckets=None) -> BucketIndex` | 建桶一次，多次 `find` 复用（见下） |
 | `sample(k, seed=None)` | 蓄水池抽样 k 个 |
 | `build_index(key_func=None) -> dict` | `dict[key] -> list[下标]` |
-| `auto_find(target, key_func=None, num_buckets=None, max_workers=None)` | 自动选策略 |
+| `auto_find(target, key_func=None, num_buckets=None, max_workers=None)` | 单次线性/并行查找，不建桶；`num_buckets` 仅兼容旧签名 |
 
 > `bucket_find` vs `build_buckets`：
 > - `bucket_find`：建桶 + 查一次 + 销毁桶，**仅适合单次查**。
@@ -73,7 +73,7 @@ BigArrayList(source, *, config=None, raise_custom=False)
 | `filter(predicate)` | 保留 predicate 为真的 |
 | `reduce(func, initial=None)` | 流式聚合，O(1) 内存 |
 | `slice(start=None, stop=None, step=None)` | 包装 `itertools.islice`，不支持负数 |
-| `distinct()` | 保留首次出现（小数据 set / 大数据排序去重） |
+| `distinct()` | 数值内存源 C 哈希、保留首次出现；其他源按量级排序或分桶，顺序随路径而定 |
 | `concat(other)` | 首尾相接 |
 | `chain(*others)` | 多流首尾相接 |
 | `group_by(key_func)` | `yield (key, list)`，小数据全局合并 |
@@ -153,7 +153,7 @@ arr = BigArrayList(data, config=cfg)
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `linear_parallel_threshold` | `100_000` | 数据量 ≥ 此值才走多进程查找 |
+| `linear_parallel_threshold` | `1_000_000` | 数据量 ≥ 此值才走多进程查找 |
 | `chunk_size_map` | `None` | 内存排序分块映射表；`None` 用内置默认 |
 | `external_sort_chunk_target` | `32` | 外部排序目标块数（32 路归并） |
 | `external_sort_min_chunk` | `100_000` | 每块至少 10 万条 |
@@ -161,6 +161,7 @@ arr = BigArrayList(data, config=cfg)
 | `external_sort_threshold` | `1_000_000` | 数据量 ≥ 此值才走外部排序 |
 | `external_sort_streaming_merge` | `True` | **归并模式**：`True`=逐条 load（低内存，默认）；`False`=整块 load（快 3~5 倍，内存 ≈ 总量） |
 | `bucket_max_count` | `1024` | 桶数上限（文件描述符约束） |
+| `bucket_file_buffer_size` | `64 * 1024` | 每个桶文件的读写缓冲（字节），避免数百桶叠加数 GB 内存 |
 
 类级方法：
 

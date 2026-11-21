@@ -15,9 +15,16 @@ from __future__ import annotations
 from collections.abc import Callable, Generator, Iterable
 from typing import Any, TypeVar
 
+from ._fast import (
+    NO_INITIAL,
+    FastListResult,
+    fast_contains,
+    fast_find_indices,
+    fast_numeric,
+)
 from .algorithms.bucket import BucketIndex
 from .config import BigArrayConfig
-from .core.base import BaseBigArrayList, _DiskSpillIterable
+from .core.base import BaseBigArrayList, _DiskSpillIterable, _is_reiterable
 from .operators.stream import LazyChain
 from .utils.scale import ScaleHelper
 from .utils.validation import (
@@ -33,6 +40,32 @@ from .utils.validation import (
 
 T = TypeVar("T")
 U = TypeVar("U")
+
+
+def _iter_numeric_hits(indices: list[int], target: T) -> Generator[tuple[int, T], None, None]:
+    """按 C 扫描得到的命中下标逐个 yield (下标, 命中元素)。
+
+    对齐 find() 的惰性生成器契约：产出 (全局下标, 命中元素) 流。
+    与并行分块版的语义差异：本路径一次扫完整个数组再开始 yield，
+    不支持"取前 k 个就早停"；但命中集合、顺序、元素值完全一致。
+    """
+    for i in indices:
+        yield (i, target)
+
+
+def _iter_sorted_numeric(fast: Any, reverse: bool) -> Generator[Any, None, None]:
+    """数值内存源排序快路：C introsort 到新数组 → 物化 list → 逐个 yield。
+
+    源已是 list/tuple 且全 int64/float64（fast_numeric 命中），排序副本的
+    O(n) 内存相对源本身是可接受的增量；任何量级都不再落盘。
+    """
+    yield from fast.py_sorted_copy(reverse).py_to_list()
+
+
+def _iter_distinct_indices(source: Any, indices: list[int]) -> Generator[Any, None, None]:
+    """按首次出现下标产出原元素，保留混合数值源的元素类型。"""
+    for i in indices:
+        yield source[i]
 
 
 class BigArrayList(BaseBigArrayList):
@@ -52,13 +85,16 @@ class BigArrayList(BaseBigArrayList):
     - 线性查找 (find) 可保持惰性：流式分块、查到就 yield、不消费剩余
     - 二分查找 (binary_search) 要求"有序 + 随机访问"，因此必须先排好序
       并把结果物化到内存中。这是算法本身的约束，不是设计缺陷。
-    - 建议：同一批数据要多次查找时，用 binary_search（一次排序 + 多次 O(log n)）；
-      只查一次或少量几次，用 find（不用付排序成本）。
+    - binary_search 每次调用都会排序；反复查询可复用 list(arr.sort()) 后自行 bisect，
+      只查一次或少量几次时用 find（不用付排序成本）。
 
     关于 reverse / copy 的 source 类型限制：
-    - int / list / tuple source：完全支持（list/tuple 走 reversed() 视图，不拷贝）
-    - generator source：源在 __init__ 中已被 list(...) 消费耗尽，reverse / copy
-      会抛 TypeError——请用 list/tuple 构造以支持这两个操作
+    - copy：所有可重复迭代的源都支持（int / list / tuple / set / range /
+      from_stream 落盘流等）；一次性的纯 generator 已在 __init__ 中物化为 list，
+      同样可 copy
+    - reverse：支持 int 与 reversed() 可用的容器（list/tuple/str/range）；
+      set、from_stream 落盘流等不支持——反向需把整份数据读入内存，与"惰性
+      低内存"设计冲突，故直接拒绝而非静默物化
     """
 
     # 子类新增字段：
@@ -212,16 +248,34 @@ class BigArrayList(BaseBigArrayList):
         return self._insert_iter(index, *new_items)
 
     # ==================== 线性查找（惰性并行）====================
+    def __contains__(self, target: object) -> bool:
+        """x in arr：数值内存源走 C 扫描快路；否则流式 any()。
+
+        快路门控在 _fast.coerce_target：非数值源、target 类型不符（如 bool
+        查 Int64Array）自动回退到基类的流式 any()，行为零变化。
+        """
+        hit = fast_contains(self, target)
+        if hit is not None:
+            return hit
+        return super().__contains__(target)
+
     def find(
         self, target: T, max_workers: int | None = None
     ) -> Generator[tuple[int, T], None, None]:
         """惰性并行线性查找：返回生成器，每项为 (全局下标, 命中元素)。
 
-        - 不预排序、不物化：流式分块、多进程并行
+        - 数值内存源（list/tuple 全 int/float）：C 扫描直接给出全部命中下标，
+          跳过并行分块——1M 数据从秒级降到毫秒级
+        - 其他源：流式分块、多进程并行
         - 查到即 yield，配合 islice 只取前 k 个命中时，可早停省资源
         - 单次 / 少量查找的首选
         """
         self._v_max_workers(max_workers)
+        # 数值内存源快路：必须在阈值分流之前拦截——否则数值源 1M find
+        # 会先去走并行分块（或 auto_find 走建桶），白付秒级 IO/IPC
+        indices = fast_find_indices(self, target)
+        if indices is not None:
+            return _iter_numeric_hits(indices, target)
         return self._parallel_find(target, max_workers=max_workers)
 
     # ==================== 二分查找（先排序，再 bisect）====================
@@ -234,7 +288,7 @@ class BigArrayList(BaseBigArrayList):
         """二分查找：返回生成器，每项为 (排序后下标, 命中元素)。
 
         流程：
-            1) _big_iter_sort 并行分块排序 → 有序迭代器
+            1) 数值内存源使用 C 排序副本；其他源走 _big_iter_sort
             2) 物化为 list（bisect 需要 arr[mid] 随机访问）
             3) bisect_left / bisect_right 定位所有命中位置，逐个 yield
 
@@ -337,19 +391,20 @@ class BigArrayList(BaseBigArrayList):
         num_buckets: int | None = None,
         max_workers: int | None = None,
     ) -> Generator[tuple[int, T], None, None]:
-        """统一查找入口：根据数据量自动选策略。
+        """单次查找入口：数值源走 C 扫描，其他源走线性或并行查找。
 
-        策略：
-            - 小数据（< config.linear_parallel_threshold）：线性查找
-            - 大数据（>= threshold）：分桶查找
-
-        不做 binary_search（要排序+返回排序后下标，语义不同）。
-        不缓存预处理结果（零副作用；查很多次请直接用 build_buckets）。
+        不再为单次查询建桶；``num_buckets`` 仅为旧签名兼容而保留。
+        重复查询请复用 ``build_buckets()`` 返回的索引。
         """
         if key_func is not None:
             self._v_callable("key_func", key_func)
         self._v_num_buckets(num_buckets)
         self._v_max_workers(max_workers)
+        # 等值查找 + 数值内存源：C 扫描快路，在阈值分流之前拦截
+        if key_func is None:
+            indices = fast_find_indices(self, target)
+            if indices is not None:
+                return _iter_numeric_hits(indices, target)
         return self._auto_find(
             target,
             key_func=key_func,
@@ -378,11 +433,62 @@ class BigArrayList(BaseBigArrayList):
         默认 streaming 模式：归并阶段逐条 load，内存峰值 = O(块数)。
         设 BigArrayConfig(external_sort_streaming_merge=False) 走整块模式
         （速度快 3~5 倍，但内存峰值 ≈ 数据总量）。
+
+        数值内存源（list/tuple 全 int/float）且无 key 函数时：直接走 C
+        introsort 物化，任何量级都不落盘——源已在内存，外部排序的磁盘 IO
+        是纯浪费。
         """
         self._v_max_workers(max_workers)
         if key is not None:
             self._v_callable("key", key)
+        # 数值内存源快路：list/tuple 全 int64/float64 + 无 key 函数 →
+        # C introsort 到新数组再物化。必须在 _big_iter_sort 的阈值分流之前，
+        # 否则 n 卡在 external_sort_threshold 边界会误走外部排序白付 IO。
+        if key is None:
+            fast = fast_numeric(self)
+            if fast is not None:
+                return _iter_sorted_numeric(fast, reverse)
         return self._big_iter_sort(max_workers=max_workers, key=key, reverse=reverse)
+
+    def sort_numeric(self, reverse: bool = False) -> FastListResult:
+        """数值快路径排序（第四步）：int/float 源走 C 级 introsort，返回可迭代的 FastListResult。
+
+        仅当源为 list/tuple 且元素全为 int/float（bool 被拒）且 .pyd 已编译时可用；
+        否则抛 RuntimeError，调用方应回退 sort()。返回物化列表（非惰性），
+        支持 list()/for/链式 .map().filter()。
+        """
+        fast = fast_numeric(self)
+        if fast is None:
+            raise RuntimeError("sort_numeric 需要 int/float list 源 + 编译好的 Cython 后端")
+        return FastListResult(fast.py_sorted_copy(reverse).py_to_list())
+
+    def view(
+        self,
+        start: int | None = None,
+        stop: int | None = None,
+        step: int = 1,
+    ) -> Generator[T, None, None]:
+        """惰性切片（第四步快路径）：int/float 源零拷贝视图（步长 1 指针偏移，不拷贝数据）。
+
+        语义对齐 slice(start, stop, step)：负数不允许（惰性流无法反向）。
+        非数值源回退 _slice_iter。快路径返回 FastListResult（可迭代/可链式）。
+        """
+        self._v_slice_arg("start", start)
+        self._v_slice_arg("stop", stop)
+        self._v_slice_arg("step", step)
+        if step is not None and step == 0:
+            raise ValueError("step 不能为 0")
+        if start != 0 or stop is not None or step != 1:
+            fast = fast_numeric(self)
+            if fast is not None:
+                n = len(fast)
+                s = 0 if start is None else start
+                e = n if stop is None else stop
+                st = 1 if step is None else step
+                if s < 0 or e < 0 or st < 0:
+                    raise ValueError("view 不允许负数（惰性流不支持反向切片）")
+                return FastListResult(fast.py_view(s, e, st).py_to_list())  # type: ignore[return-value]
+        return self._slice_iter(start, stop, step)
 
     # ==================== 反转 ====================
     def reverse(self) -> Generator[T, None, None]:
@@ -393,35 +499,50 @@ class BigArrayList(BaseBigArrayList):
     def copy(self) -> BigArrayList:
         """返回一个包含相同数据的新 BigArrayList 实例（独立迭代器状态）。
 
-        实现策略（按 source 类型分流，与 reverse 一致）：
-            - int source：直接用同样的 int 构造
-            - list/tuple source：直接复用源容器（list/tuple 可重复迭代）
-            - generator source：源已耗尽无法复制，抛 TypeError
+        支持所有可重复迭代的源：int / list / tuple / set / range /
+        from_stream 落盘流等（源在 __init__ 中已归一化——一次性 generator
+        早已物化为 list，落盘流可反复读盘）。新实例与原实例共享同一 source
+        引用但各自持有独立迭代器，互不消费。
         """
         src = self._get_source()  # 通过 _CoreBase 提供的保护方法访问
-        if isinstance(src, int):
-            return BigArrayList(src)
-        if isinstance(src, (list, tuple)):
+        if isinstance(src, int) or _is_reiterable(src):
             return BigArrayList(src)
         raise TypeError(
-            "无法对 generator source 执行 copy（源已耗尽）；"
-            "请用 list/tuple 构造 BigArrayList(...) 以支持 copy"
+            f"{type(src).__name__} 源是一次性迭代器，无法 copy（源已被消费）；"
+            "请用 list/tuple 构造或 from_stream()"
         )
 
     # ==================== 流式算子（裸 generator，向后兼容）====================
+    # 注意：数值源 + Cython 快路径时 map/filter 返回 FastListResult——
+    # 可迭代（list()/for 全兼容）且支持链式 .map().filter()；其他源仍返回裸 generator。
     def map(self, func: Callable[[T], U]) -> Generator[U, None, None]:
-        """惰性变换：对每个元素应用 func，产出结果流（裸 generator）。"""
+        """惰性变换：对每个元素应用 func，产出结果流（裸 generator）。
+
+        数值源 + Cython 后端可用时走 C 级循环快路径（返回可链式的 FastListResult）。
+        """
         self._v_callable("func", func)
+        fast = fast_numeric(self)
+        if fast is not None:
+            return FastListResult(fast.py_map(func))  # type: ignore[return-value]
         return self._map_iter(func)
 
     def filter(self, predicate: Callable[[T], bool]) -> Generator[T, None, None]:
-        """惰性过滤：只产出 predicate(item) 为真的元素（裸 generator）。"""
+        """惰性过滤：只产出 predicate(item) 为真的元素（裸 generator）。
+
+        数值源 + Cython 后端可用时走 C 级循环快路径（返回可链式的 FastListResult）。
+        """
         self._v_callable("predicate", predicate)
+        fast = fast_numeric(self)
+        if fast is not None:
+            return FastListResult(fast.py_filter(predicate))  # type: ignore[return-value]
         return self._filter_iter(predicate)
 
     def reduce(self, func: Callable[[U, T], U], initial: U | None = None) -> U:
         """流式聚合：acc = func(acc, item)，逐元素累加，返回最终 acc。"""
         self._v_callable("func", func)
+        fast = fast_numeric(self)
+        if fast is not None:
+            return fast.py_reduce(func, NO_INITIAL if initial is None else initial)  # type: ignore[no-any-return]
         return self._reduce(func, initial=initial)
 
     def slice(
@@ -442,7 +563,17 @@ class BigArrayList(BaseBigArrayList):
         return self._slice_iter(start, stop, step)
 
     def distinct(self) -> Generator[T, None, None]:
-        """惰性去重：保留每个元素的首次出现（裸 generator）。"""
+        """惰性去重：数值内存源保留首次出现且不分桶落盘。
+
+        C 哈希表返回首次出现下标，混合数值源仍产出原类型对象；
+        含 NaN 时回退 Python，保留其对象身份语义。非数值大数据路径的
+        输出顺序仍由排序/分桶配置决定。
+        """
+        fast = fast_numeric(self)
+        if fast is not None:
+            indices = fast.py_distinct_indices()
+            if indices is not None:
+                return _iter_distinct_indices(self._get_source(), indices)
         return self._distinct_iter()
 
     def concat(self, other: Iterable[T]) -> Generator[T, None, None]:
@@ -464,6 +595,9 @@ class BigArrayList(BaseBigArrayList):
     def count_if(self, predicate: Callable[[T], bool]) -> int:
         """流式条件计数：统计 predicate(item) 为真的元素个数。"""
         self._v_callable("predicate", predicate)
+        fast = fast_numeric(self)
+        if fast is not None:
+            return fast.py_count_if(predicate)  # type: ignore[no-any-return]
         return self._count_if(predicate)
 
     # ==================== 聚合（单遍 O(n)，O(1) 内存）====================
@@ -480,6 +614,15 @@ class BigArrayList(BaseBigArrayList):
         """
         if key is not None:
             self._v_callable("key", key)
+        if key is None:
+            fast = fast_numeric(self)
+            if fast is not None:
+                if len(fast) == 0:
+                    return default  # 空数据：快路径 py_min 返回 None，需对齐 default 语义
+                cfg = self._get_config()
+                if len(fast) >= cfg.fast_parallel_threshold:
+                    return fast.py_min_parallel(cfg.fast_parallel_threads)  # type: ignore[no-any-return]
+                return fast.py_min()  # type: ignore[no-any-return]
         return self._min(key=key, default=default)
 
     def max(
@@ -495,15 +638,39 @@ class BigArrayList(BaseBigArrayList):
         """
         if key is not None:
             self._v_callable("key", key)
+        if key is None:
+            fast = fast_numeric(self)
+            if fast is not None:
+                if len(fast) == 0:
+                    return default  # 空数据：快路径 py_max 返回 None，需对齐 default 语义
+                cfg = self._get_config()
+                if len(fast) >= cfg.fast_parallel_threshold:
+                    return fast.py_max_parallel(cfg.fast_parallel_threads)  # type: ignore[no-any-return]
+                return fast.py_max()  # type: ignore[no-any-return]
         return self._max(key=key, default=default)
 
     def sum(self) -> Any:
-        """求和。元素需支持 + 运算符（数值等）。空数据返回 0。"""
+        """求和。元素需支持 + 运算符（数值等）。空数据返回 0。
+
+        数值源（int/float）且 Cython 后端可用时走 C 级紧凑数组快路径，
+        否则纯 Python 流式累加。
+        """
+        # 快路径：list/tuple 全数值源 + .pyd 已编译 → C 级求和
+        # 转换失败的元素（bool 语义不同，超范围 int 混 float 等）自动回退慢路径
+        fast = fast_numeric(self)
+        if fast is not None:
+            cfg = self._get_config()
+            if len(fast) >= cfg.fast_parallel_threshold:
+                return fast.py_sum_parallel(cfg.fast_parallel_threads)
+            return fast.py_sum()
         return self._sum()
 
     def avg(self) -> float:
-        """求平均值。空数据抛 ValueError。"""
-        return self._avg()
+        """求平均值，复用 sum() 的数值快路。空数据抛 ValueError。"""
+        n = len(self)
+        if n == 0:
+            raise ValueError("avg() of empty iterable")
+        return self.sum() / n  # type: ignore[no-any-return]
 
     def count(self) -> int:
         """返回元素总数（等价于 len(self)）。"""

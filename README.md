@@ -54,19 +54,19 @@ with arr.build_buckets() as idx:
 | --- | --- | --- |
 | 惰性迭代 | `__next__` / `cycle` | 标准协议耗尽即停；`.cycle()` 无限循环 |
 | 增删改插 | `append` / `remove` / `replace` / `insert` | 全惰性、不物化 |
-| 线性查找 | `find` | 多进程分块并行，惰性、可早停 |
-| 二分查找 | `binary_search` | 先排序后 bisect，返回排序后下标 |
+| 线性查找 | `find` | 数值内存源 C 扫描；其他源线性/并行分块 |
+| 二分查找 | `binary_search` | 数值源复用 C 排序副本后 bisect，返回排序后下标 |
 | 分桶查找（一次性） | `bucket_find` | 哈希分桶 + 单桶扫描，每次重建桶 |
 | **持久化分桶（新）** | `build_buckets` | 建桶一次返回 `BucketIndex`，多次 `find` 复用 |
 | 蓄水池抽样 | `sample` | O(k) 内存，无需预知总量 |
 | 二级索引 | `build_index` | `dict[key] -> list[下标]`，O(1) 判定 |
-| 统一查找 | `auto_find` | 按数据量自动选线性 / 分桶 |
-| 排序 | `sort` | 三级分流：<10w 直排 / 10w~100w 内存多进程 / ≥100w 外部排序；支持 `reverse=True` |
+| 统一查找 | `auto_find` | 单次查询直接线性/并行查找，不建桶 |
+| 排序 | `sort` | 数值内存源 C 排序；其他源按阈值内存/外部排序；数值磁盘帧 C 多路归并 |
 | **流式构造（新）** | `from_stream` / `length=` | generator 不再强制物化；`from_stream()` 磁盘落盘内存 O(1)；`length=` 跳过 list() |
-| **聚合（新）** | `min`/`max`/`sum`/`avg`/`count` | 单遍 O(n) O(1) 内存，支持 key 参数 |
-| 流式算子（裸生成器） | `map`/`filter`/`reduce`/`slice`/`distinct`/`concat`/`chain`/`group_by`/`count_if` | 全惰性、非物化，向后兼容 |
+| **聚合（新）** | `min`/`max`/`sum`/`avg`/`count` | 数值源 C 快路；`avg()` 复用 `sum()/len()` |
+| 流式算子（裸生成器） | `map`/`filter`/`reduce`/`slice`/`distinct`/`concat`/`chain`/`group_by`/`count_if` | 数值去重使用 C 哈希并保留首次出现顺序 |
 | **链式算子（新）** | `.lazy()` → `LazyChain` | `.filter().map().distinct().collect()` 链式组合 |
-| **配置对象（新）** | `BigArrayConfig` | 所有阈值可调，外部排序模式 / 桶上限 / 并行阈值 |
+| **配置对象（新）** | `BigArrayConfig` | 阈值、外部排序、桶数与桶文件缓冲均可调 |
 | **自定义异常（新）** | `exceptions` | 继承标准异常，向后兼容；`raise_custom=True` 启用 |
 
 ## 项目结构

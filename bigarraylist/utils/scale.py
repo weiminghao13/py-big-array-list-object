@@ -118,9 +118,25 @@ def chunk_wise_processing(iterable: Iterable[T]) -> Iterator[list[T]]:
 
 
 def choose_chunk_size(total_count: int) -> int:
-    """根据总条数选择分块大小（100~1000）。"""
+    """根据总条数选择分块大小（100~1000）。
+
+    ⚠️ 历史遗留：该粒度对多进程路径过细（1000 次 IPC 是负优化），
+    新代码请用 choose_parallel_chunk_size。保留供向后兼容（测试/外部调用）。
+    """
     scale = ScaleHelper.get_scale(total_count)
     return _CHUNK_SIZE_MAP[scale.value]
+
+
+def choose_parallel_chunk_size(total_count: int, workers: int, min_size: int = 65_536) -> int:
+    """多进程路径的任务粒度（P0-2 Step 2 / P0-3）。
+
+    块大小 = max(min_size, n // (workers * 4))：
+        - 30 万数据 8 核 → 8~32 块，每块 1~4 万元素
+        - IPC 次数从旧 choose_chunk_size 的数千次降到几十次
+    workers 至少按 4 兜底，避免除零/过细。
+    """
+    w = max(1, workers)
+    return max(min_size, total_count // (w * 4))
 
 
 def choose_external_sort_chunk_size(

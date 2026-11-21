@@ -11,11 +11,12 @@
 from __future__ import annotations
 
 import os
-import pickle
 import tempfile
 from collections.abc import Generator, Iterable, Iterator
 from typing import Any, Generic, TypeVar
 
+from ..algorithms._pool import shutdown_pool  # noqa: F401  # 确保模块导入即注册 atexit
+from ..algorithms.fileio import IO_BUFFER_SIZE, dump_frame, frames_iter
 from ..algorithms.sample import reservoir_sample
 from ..config import BigArrayConfig
 from ..operators.crud import CRUDMixin
@@ -29,26 +30,50 @@ T = TypeVar("T")
 class _DiskSpillIterable(Iterable[T]):
     """把一次性迭代器（generator/iterator）的数据全量落盘到临时文件。
 
-    构造时消费迭代器并逐条 pickle.dump 到临时文件，内存 O(1)；
+    构造时消费迭代器并按自描述帧格式落盘（每批一个 list，内存 O(batch_size)）：
+    整批全 int → int64 紧凑二进制帧，全 float → float64 帧，否则 pickle 帧
+    （P0-1：批量比逐条快 10x+；方案②：数值流全程零 pickle，写读更省）。
     之后 __iter__ 从磁盘读，可重复迭代——解决 generator 源无法被
     _fresh_iter() 反复消费的问题。
 
     与 list(source) 的区别：数据放磁盘而非内存，能处理远超内存的数据量。
-    代价：构造有磁盘 IO，且元素必须可 pickle。
+    代价：构造有磁盘 IO；非数值元素仍需可 pickle（数值批不需要）。
 
     生命周期：持有临时文件路径，__del__ / close() 时删除。
     """
 
-    __slots__ = ("_length", "_path")
+    __slots__ = ("_batch_size", "_length", "_path")
 
-    def __init__(self, source: Iterable[T], *, length: int | None = None) -> None:
+    def __init__(
+        self,
+        source: Iterable[T],
+        *,
+        length: int | None = None,
+        batch_size: int = 4096,
+    ) -> None:
         self._length = length
-        tmp = tempfile.NamedTemporaryFile(suffix=".tmp", prefix="big_stream_", delete=False)
+        self._batch_size = batch_size
+        # 先占位 None：构造中途抛异常（如元素不可 pickle）时 __del__/close() 依赖它
+        self._path: str | None = None
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".tmp",
+            prefix="big_stream_",
+            delete=False,
+            buffering=IO_BUFFER_SIZE,
+        )
+        # 边写边数（source 可能是一次性 iterator，只能消费一次）
         count = 0
         try:
+            buf: list[T] = []
             for item in source:
-                pickle.dump(item, tmp)
-                count += 1
+                buf.append(item)
+                if len(buf) >= batch_size:
+                    dump_frame(tmp, buf)
+                    count += len(buf)
+                    buf = []
+            if buf:
+                dump_frame(tmp, buf)
+                count += len(buf)
             tmp.close()
         except BaseException:
             tmp.close()
@@ -62,20 +87,22 @@ class _DiskSpillIterable(Iterable[T]):
             self._length = count
 
     def __iter__(self) -> Iterator[T]:
-        with open(self._path, "rb") as f:
-            while True:
-                try:
-                    yield pickle.load(f)
-                except EOFError:
-                    return
+        # __init__ 成功才可能有迭代；构造失败时对象不会活到被迭代
+        assert self._path is not None, "_DiskSpillIterable 构造未完成"
+        with open(self._path, "rb", buffering=IO_BUFFER_SIZE) as f:
+            yield from frames_iter(f)
 
     def __len__(self) -> int:
         return self._length  # type: ignore[return-value]  # __init__ 保证非 None
 
     def close(self) -> None:
-        """删除临时文件，幂等。"""
+        """删除临时文件，幂等；构造失败（_path 为 None）时为空操作。"""
+        path = self._path
+        self._path = None
+        if path is None:
+            return
         try:
-            os.unlink(self._path)
+            os.unlink(path)
         except OSError:
             pass
 
@@ -108,11 +135,12 @@ class _CoreBase(Generic[T]):
     的返回类型 T 能被 mypy 推导；运行时 Generic 不引入额外开销。
     """
 
-    __slots__ = ("__config", "__data", "__index", "__len", "__source")
+    __slots__ = ("__config", "__data", "__fast_cache", "__index", "__len", "__source")
 
     # 类型标注（mypy 用，运行时被 __slots__ 覆盖）
     __config: BigArrayConfig
     __data: Iterator[Any]
+    __fast_cache: tuple[int, int, Any] | None
     __index: int
     __len: int
     __source: int | Iterable[Any]
@@ -162,6 +190,7 @@ class _CoreBase(Generic[T]):
                 self.__data = iter(source)
                 self.__len = data_len
         self.__index = 0  # 当前已消费的位置（惰性迭代用）
+        self.__fast_cache = None  # 数值快路径数组缓存（_fast 层写入）
 
     # ===== 长度 / 索引 =====
     def __len__(self) -> int:
@@ -253,13 +282,14 @@ class _CoreBase(Generic[T]):
     def _reverse_iter(self) -> Generator[T, None, None]:
         """反向迭代器：从尾到头逐个产出元素。
 
-        ⚠️ 反向迭代天然要求"先看到尾才能倒着产头"，对非 int 源
-        必须物化源数据——这是反向语义的固有代价，不是设计缺陷。
-
         按 source 类型分流：
             - int source（全 0 测试源）：反转仍是全 0，直接生成 N 个 0
-            - list/tuple/str 等 reversible 容器：reversed(src) 视图
-            - generator source（已耗尽）：抛 TypeError
+            - 支持 reversed() 的容器（list/tuple/str/range 等）：零拷贝反向视图
+            - 其余（set、from_stream 落盘流等）：抛 TypeError
+
+        ⚠️ 本实现不物化源数据：对 from_stream 的落盘流反向需先把整份数据
+        读进内存，与"惰性低内存"设计冲突，故直接拒绝而非静默物化——这是
+        有意的安全选择。要反向就先自行物化（list(big)）再构造。
         """
         src = self.__source
         if isinstance(src, int):
@@ -267,10 +297,16 @@ class _CoreBase(Generic[T]):
                 yield 0  # type: ignore[misc]  # int 兼容 T 由调用方语义保证
             return
         try:
-            yield from reversed(src)  # type: ignore[call-overload]  # src 运行时是 Reversible 容器
+            yield from reversed(src)  # type: ignore[call-overload]  # src 运行时须支持 __reversed__/__getitem__
         except TypeError as e:
+            if isinstance(src, _DiskSpillIterable):
+                raise TypeError(
+                    "from_stream 的落盘流不支持 reverse（反向需把整份数据读入内存，"
+                    "与低内存设计冲突）；请先 list(big) 物化后再构造，或改用其他方案"
+                ) from e
             raise TypeError(
-                "无法对已耗尽的 generator source 反向迭代；请用 list/tuple 构造以支持 reverse"
+                f"{type(src).__name__} 源不支持 reverse（reversed() 需要 list/tuple/str/"
+                "range 等实现了 __reversed__ 或 __getitem__ 的类型）；请用 list/tuple 构造"
             ) from e
 
     def _copy_iter(self) -> Generator[T, None, None]:
@@ -288,6 +324,18 @@ class _CoreBase(Generic[T]):
         返回的是原始引用，不复制——调用方请勿修改。
         """
         return self.__source
+
+    # ===== 数值快路径缓存（_fast 层读取/写入，避免每次算子重转换）=====
+    def _get_fast_cache(self) -> tuple[int, int, Any] | None:
+        """返回 (源id, 源长度, 紧凑数值数组) 缓存；无缓存时为 None。
+
+        本层只负责存取不透明值，不依赖 _fast（避免循环导入）。
+        """
+        return self.__fast_cache
+
+    def _set_fast_cache(self, value: tuple[int, int, Any] | None) -> None:
+        """写入数值快路径缓存（None 表示清空）。"""
+        self.__fast_cache = value
 
     # ===== 蓄水池抽样（直接放核心层，无需 mixin）=====
     def _sample(self, k: int, seed: int | None = None) -> Generator[T, None, None]:

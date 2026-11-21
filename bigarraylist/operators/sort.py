@@ -11,15 +11,20 @@ from __future__ import annotations
 import bisect as _bisect_mod
 import heapq
 from collections.abc import Callable, Generator, Iterable, Iterator
-from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Generic, TypeVar
 
+from .._fast import fast_numeric
+from ..algorithms._pool import default_workers, get_pool
 from ..algorithms.external_sort import external_sort
 from ..algorithms.parallel import chunk_is_sorted, sort_chunk
 from ..config import BigArrayConfig
-from ..utils.scale import choose_chunk_size
+from ..utils.scale import choose_parallel_chunk_size
 
 T = TypeVar("T")
+
+# is_sorted 小数据分支的"尚无前一个元素"哨兵：不能用 None，
+# 否则源中真含 None 时会跳过与前一个元素的比较（静默漏判）。
+_NO_PREV = object()
 
 
 class _ReverseWrapper:
@@ -83,34 +88,35 @@ class SortMixin(Generic[T]):
     def is_sorted(self, max_workers: int | None = None) -> bool:
         """判断数据是否已按升序排列。
 
-        全程操作 _fresh_iter()，不碰 self.__data——可重复调用。
-        大数据场景下：
-            - 每个 chunk 内部判断局部有序（并行干）
-            - 相邻 chunk 之间再比较"前一块尾 ≤ 后一块头"（必要条件）
-        两者同时满足才算全局有序。
+        数值内存源用 C 单遍检查并提前退出；其他大数据仍按块并行，
+        同时验证块内有序及相邻块边界。
         """
         n = len(self)
         if n <= 1:
             return True
+        fast = fast_numeric(self)
+        if fast is not None:
+            return fast.py_is_sorted()  # type: ignore[no-any-return]
 
         cfg: BigArrayConfig = self._get_config()
         data = self._fresh_iter()
 
         # 小数据：直接流式 O(n) 判断，进程启动开销不划算
         if n < cfg.linear_parallel_threshold:
-            prev: T | None = None
+            prev: Any = _NO_PREV
             for item in data:
-                if prev is not None and prev > item:  # type: ignore[operator]
+                if prev is not _NO_PREV and prev > item:
                     return False
                 prev = item
             return True
 
-        chunk_size = choose_chunk_size(n)
+        workers = max_workers or default_workers()
+        chunk_size = choose_parallel_chunk_size(n, workers, cfg.parallel_chunk_min_size)
         chunk_bounds: list[tuple[T, T]] = []
-        pool = ProcessPoolExecutor(max_workers=max_workers)
+        pool = get_pool(max_workers)
+        futures = []
+        chunk: list[T] = []
         try:
-            futures = []
-            chunk: list[T] = []
             for item in data:
                 chunk.append(item)
                 if len(chunk) >= chunk_size:
@@ -132,8 +138,12 @@ class SortMixin(Generic[T]):
                     return False
 
             return True
-        finally:
-            pool.shutdown(wait=False)
+        except BaseException:
+            # 早停/异常：取消未启动的 future（共享池保持运行）
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
+            raise
 
     def _big_iter_sort(
         self,
@@ -144,9 +154,16 @@ class SortMixin(Generic[T]):
         """大数据排序：按数据量分流。
 
         - 小数据（< config.linear_parallel_threshold）：直接 sorted() 物化，单进程
-        - 中数据（threshold ~ external_sort_threshold）：分块并行排序 + 内存多路归并
+        - 中数据（threshold ~ external_sort_threshold）：
+            * memory_parallel_sort_enabled=False（默认）：直接 sorted()——
+              实测 30 万 float 走分块并行 1.139s vs sorted() 0.046s（负优化），
+              1M 以内纯 C Timsort ≈ 0.15s，不值得开进程（P0-2 Step 1）
+            * memory_parallel_sort_enabled=True：分块并行排序 + 内存多路归并
+              （适合"CPU 核数多 + 元素比较贵"的场景），任务粒度
+              max(parallel_chunk_min_size, n // (workers*4))（P0-2 Step 2）
         - 大数据（>= config.external_sort_threshold）：外部排序
-          * 默认 streaming 模式：阶段 2 逐条 load，内存峰值 = O(块数)
+          * 默认 streaming 模式：阶段 2 批量帧 load（每批 pickle_batch_size 条），
+            内存峰值 = O(块数 × batch_size)，仍远小于数据总量（P0-1）
           * block 模式（external_sort_streaming_merge=False）：归并阶段所有块
             整块 load 到内存，峰值 ≈ 数据总量，但速度快 3~5 倍
 
@@ -162,7 +179,11 @@ class SortMixin(Generic[T]):
         n = len(self)
         cfg: BigArrayConfig = self._get_config()
 
-        if n < cfg.linear_parallel_threshold:
+        # 小数据，或（默认关掉中数据并行分支时的）中数据：直接 sorted()。
+        # 纯 C Timsort 对 1M 以内数据远快于任何多进程方案（P0-2）。
+        if n < cfg.external_sort_threshold and not (
+            cfg.memory_parallel_sort_enabled and n >= cfg.linear_parallel_threshold
+        ):
             yield from sorted(self._fresh_iter(), key=key, reverse=reverse)  # type: ignore[type-var, arg-type]
             return
 
@@ -178,13 +199,16 @@ class SortMixin(Generic[T]):
             )
             return
 
-        # 中数据：分块并行排序 + 内存多路归并
+        # 中数据（memory_parallel_sort_enabled=True 才到这里）：
+        # 分块并行排序 + 内存多路归并；共享池 + 大块粒度（P0-2 Step 2）
         data = self._fresh_iter()
-        chunk_size = choose_chunk_size(n)
+        workers = max_workers or default_workers()
+        chunk_size = choose_parallel_chunk_size(n, workers, cfg.parallel_chunk_min_size)
 
-        with ProcessPoolExecutor(max_workers=max_workers) as pool:
-            futures: list[Any] = []
-            chunk: list[T] = []
+        pool = get_pool(max_workers)
+        futures: list[Any] = []
+        chunk: list[T] = []
+        try:
             for item in data:
                 chunk.append(item)
                 if len(chunk) >= chunk_size:
@@ -193,6 +217,11 @@ class SortMixin(Generic[T]):
             if chunk:
                 futures.append(pool.submit(sort_chunk, (chunk, key, reverse)))
             sorted_chunks = [fut.result() for fut in futures]
+        except BaseException:
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
+            raise
 
         if reverse:
             # 每块已降序排列；用 _ReverseWrapper 包装后 heapq.merge 升序归并，
@@ -231,24 +260,18 @@ class SortMixin(Generic[T]):
     ) -> Generator[tuple[int, T], None, None]:
         """二分查找（先排序，再 bisect）。
 
-        正确流程（也是唯一可行的流程）：
-            1) 用 _big_iter_sort 做分块并行排序 → 拿到有序迭代器
-            2) 把有序迭代器**物化**成 list（bisect 要求 arr[mid] 随机访问，绕不开）
-            3) 用 bisect_left / bisect_right 夹出 [left, right) 命中区间
-            4) 逐个 yield (排序后下标, 命中元素)
-
-        参数：
-            target:      要查找的元素；若 key 不为 None，则比较的是 key(target)
-            max_workers: 排序阶段进程池并行度
-            key:         排序键函数；查找时对 target 和元素都应用 key 后比较
-
-        全程操作 _fresh_iter()（在 _big_iter_sort 内部），不碰 self.__data。
-        ⚠️ 返回的下标是"**排序后**的下标"，不是原始数据的下标。
+        数值内存源且无 key 时先用 C 排序副本物化；其他源沿用三级排序分流。
+        随后用 bisect_left / bisect_right 夹出 [left, right) 命中区间，
+        返回 (排序后下标, 命中元素)，而不是原始数据下标。
         """
-        sorted_iter: Generator[T, None, None] = self._big_iter_sort(
-            max_workers=max_workers, key=key
-        )
-        sorted_list: list[T] = list(sorted_iter)
+        fast = fast_numeric(self) if key is None else None
+        if fast is not None:
+            sorted_list: list[T] = fast.py_sorted_copy(False).py_to_list()
+        else:
+            sorted_iter: Generator[T, None, None] = self._big_iter_sort(
+                max_workers=max_workers, key=key
+            )
+            sorted_list = list(sorted_iter)
         if key is None:
             left = _bisect_mod.bisect_left(sorted_list, target)  # type: ignore[call-overload]
             right = _bisect_mod.bisect_right(sorted_list, target)  # type: ignore[call-overload]

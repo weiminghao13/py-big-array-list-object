@@ -9,16 +9,16 @@
 
 from __future__ import annotations
 
-import os
 from collections import deque
 from collections.abc import Callable, Generator, Iterator
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import Future
 from typing import Any, Generic, TypeVar
 
+from ..algorithms._pool import default_workers, get_pool
 from ..algorithms.bucket import BucketIndex, build_buckets
 from ..algorithms.parallel import linear_find_in_chunk
 from ..config import BigArrayConfig
-from ..utils.scale import choose_chunk_size
+from ..utils.scale import choose_parallel_chunk_size
 
 T = TypeVar("T")
 
@@ -55,6 +55,11 @@ class SearchMixin(Generic[T]):
 
         滑动窗口设计：保持最多 workers*2 个 future 在飞行，yield 一块后补一块，
         既保证并行度又避免一次性提交全部 chunk（早停场景下浪费 CPU）。
+
+        任务粒度用 choose_parallel_chunk_size（P0-3）：块大小
+        max(parallel_chunk_min_size, n // (workers*4))，IPC 次数从数千降到几十。
+        共享进程池（P1-2）：不再每次调用冷启动 spawn；早停时仍取消未启动的
+        future（GeneratorExit 语义不变），只是池不 shutdown。
         """
         n = len(self)
         cfg: BigArrayConfig = self._get_config()
@@ -67,11 +72,11 @@ class SearchMixin(Generic[T]):
                     yield (i, item)
             return
 
-        chunk_size = choose_chunk_size(n)
-        workers = max_workers or (os.cpu_count() or 4)
+        workers = max_workers or default_workers()
+        chunk_size = choose_parallel_chunk_size(n, workers, cfg.parallel_chunk_min_size)
         window_size = workers * 2  # 保持足够的飞行任务数
 
-        pool = ProcessPoolExecutor(max_workers=max_workers)
+        pool = get_pool(max_workers)
         in_flight: deque[Future[list[tuple[int, T]]]] = deque()
         chunk: list[T] = []
         current_index = 0
@@ -105,12 +110,11 @@ class SearchMixin(Generic[T]):
                 _fill_window()  # 产出一块后补一块
         except GeneratorExit:
             # 调用方停止消费：取消所有未完成的 future，然后重新抛出
+            # （共享池保持运行，只取消任务不 shutdown——P1-2）
             for fut in in_flight:
                 if not fut.done():
                     fut.cancel()
             raise
-        finally:
-            pool.shutdown(wait=False)
 
     def _bucket_find(
         self,
@@ -212,26 +216,19 @@ class SearchMixin(Generic[T]):
         num_buckets: int | None = None,
         max_workers: int | None = None,
     ) -> Generator[tuple[int, T], None, None]:
-        """统一查找入口：根据数据量自动选策略。
+        """单次等值查找：线性扫描，大数据可按阈值并行分块。
 
-        策略：
-            - 小数据（< config.linear_parallel_threshold）：直接线性查找
-            - 大数据（>= threshold）：分桶查找（建桶 + 单桶扫）
-
-        不做 binary_search（要排序+返回排序后下标，语义不同）。
-        不缓存预处理结果（零副作用；查很多次请直接用 build_buckets）。
+        ``num_buckets`` 仅为旧签名兼容而保留，不再触发建桶。重复查询应由
+        调用方复用 ``build_buckets()`` 返回的索引，避免每次支付全量落盘成本。
+        指定 ``key_func`` 时保持 ``key(item) == key(target)`` 的匹配语义。
         """
-        n = len(self)
-        cfg: BigArrayConfig = self._get_config()
-        if n < cfg.linear_parallel_threshold:
+        if key_func is None:
             yield from self._parallel_find(target, max_workers=max_workers)
-        else:
-            yield from self._bucket_find(
-                target,
-                key_func=key_func,
-                num_buckets=num_buckets,
-                max_workers=max_workers,
-            )
+            return
+        target_key = key_func(target)
+        for i, item in enumerate(self._fresh_iter()):
+            if key_func(item) == target_key:
+                yield (i, item)
 
 
 __all__ = ["SearchMixin"]

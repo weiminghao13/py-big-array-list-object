@@ -7,8 +7,14 @@
       阶段 2 每个文件用一个 lazy 文件迭代器，每次只 load 一条。
       内存峰值 = O(块数) 文件句柄 + O(块数) 单条元素。
 
+阶段 1 的块落盘分两条路（方案③）：
+    - 纯数值块（int64/float64）：主进程内 C introsort 后直接写二进制帧，
+      不经进程池、不 pickle——省掉 IPC 往返与子进程冷启动
+    - 其它块（含 key、非数值）：提交进程池 sorted()，结果按自描述帧落盘
+阶段 2 的同类型纯数值帧在 C 层流式多路归并；其它帧回退 heapq.merge。
+
 模式选择（由 BigArrayConfig.external_sort_streaming_merge 控制）：
-    - True  → streaming（逐条 load，省内存，速度稍慢）
+    - True  → streaming（逐批 load，省内存，速度稍慢）
     - False → block（整块 load，快 3~5 倍，内存 ≈ 数据总量；与重构前一致）
 
 通过 lazy_file_iter / lazy_block_iter 两种文件迭代器抽象两种模式，
@@ -19,15 +25,22 @@ from __future__ import annotations
 
 import heapq
 import os
-import pickle
 import tempfile
 from collections import deque
 from collections.abc import Callable, Generator, Iterable
 from concurrent.futures import Future, ProcessPoolExecutor
 from typing import IO, Any, TypeVar
 
+from .._fast import NUMERIC_MERGE_AVAILABLE, merge_numeric_files
 from ..config import BigArrayConfig
 from ..utils.scale import choose_external_sort_chunk_size
+from ._pool import default_workers, get_pool
+from .fileio import (
+    IO_BUFFER_SIZE,
+    dump_frames,
+    dump_sorted_frames_kind,
+    frames_iter,
+)
 from .parallel import sort_chunk
 
 T = TypeVar("T")
@@ -67,26 +80,34 @@ def _unwrap_reverse(it: Iterable[_ReverseWrapper]) -> Generator[T, None, None]:
         yield wrapped.value
 
 
-# 双缓冲流水线深度：阶段 1 同时最多保持 2 个 chunk 在飞行
-# （1 个在 worker 中排序 + 1 个在主进程读取/落盘）。
-# 排序 N 与 "读 N+1 + 落 N-1" 并行，并行度从 1 提升到 2，
-# 内存峰值仍为 O(chunk_size)（与串行版一致，不退化成中数据分支）。
+# 旧的双缓冲流水线深度常量：保留名字向后兼容（可被 import），
+# 实际深度由 _resolve_pipeline_depth 按 worker 数/config 动态决定（P0-3）。
 _BUFFER_DEPTH = 2
 
 
-def _streaming_file_iter(f: IO[bytes]) -> Generator[T, None, None]:
-    """逐条 pickle.load 模式的文件迭代器。
+def _resolve_pipeline_depth(max_workers: int | None, config: BigArrayConfig) -> int:
+    """流水线深度：默认 max(2, 2 * workers)，让每个 worker 都有飞行任务。
 
-    要求文件是用"逐条 pickle.dump"写入的（每次 dump 一个元素）。
-    每次 next 调用 pickle.load(f)，读到 EOF 抛 StopIteration。
-    内存：O(1) per file（同时持有的元素仅 1 个）。
+    旧版硬编码 2：8 核机器 6 核空转。内存峰值 = O(深度 × chunk_size)，
+    chunk_size 由 choose_external_sort_chunk_size 保证 ≤ 5M，可控。
+    config.external_sort_pipeline_depth 显式设置时强制覆盖。
+    """
+    if config.external_sort_pipeline_depth is not None:
+        return max(1, config.external_sort_pipeline_depth)
+    return max(2, 2 * (max_workers or default_workers()))
+
+
+def _streaming_file_iter(f: IO[bytes]) -> Generator[T, None, None]:
+    """streaming 归并模式的文件迭代器（自描述帧格式，方案③）。
+
+    文件用 dump_frames / dump_sorted_frames 写入。每帧读回一批再逐条 yield：
+    - 数值帧零 pickle（int64/float64 原生字节），非数值帧回退 pickle
+    - 对外仍是逐条产出，heapq.merge 零改动
+    内存：O(batch_size) per file（32 块 × 4096 × 100B ≈ 13MB，
+    仍远小于 block 模式，不破坏 streaming 省内存语义）。
     """
     try:
-        while True:
-            try:
-                yield pickle.load(f)
-            except EOFError:
-                return
+        yield from frames_iter(f)
     except GeneratorExit:
         # 调用方 close() 生成器时也要让上层 finally 关闭文件
         raise
@@ -99,18 +120,25 @@ def _block_file_iter(f: IO[bytes]) -> Generator[T, None, None]:
     一次 pickle.load 读出整块 list，然后 yield from 展开。
     内存：O(整块大小) per file；所有文件同时存在时，总内存 ≈ 数据总量。
     """
+    import pickle
+
     chunk_list = pickle.load(f)
     yield from chunk_list
 
 
-def _dump_streaming(chunk: list[T], f: IO[bytes]) -> None:
-    """逐条 pickle.dump 一个 chunk 的元素到文件 f。"""
-    for item in chunk:
-        pickle.dump(item, f)
+def _dump_streaming(chunk: list[T], f: IO[bytes], batch_size: int = 4096) -> None:
+    """按自描述帧格式 dump 一个 chunk 到文件 f（方案③）。
+
+    数值批自动走 int64/float64 二进制帧（零 pickle），非数值批回退 pickle 帧。
+    本函数用于"已由进程池排好序"的块。
+    """
+    dump_frames(chunk, f, batch_size)
 
 
 def _dump_block(chunk: list[T], f: IO[bytes]) -> None:
     """整块 pickle.dump 一个 chunk 到文件 f（向后兼容模式）。"""
+    import pickle
+
     pickle.dump(chunk, f)
 
 
@@ -158,73 +186,136 @@ def external_sort(
     """
     cfg = config if config is not None else BigArrayConfig.default()
     streaming = cfg.external_sort_streaming_merge
+    batch_size = cfg.pickle_batch_size
+    depth = _resolve_pipeline_depth(max_workers, cfg)
     chunk_size = choose_external_sort_chunk_size(
         total_count,
         target=cfg.external_sort_chunk_target,
         min_chunk=cfg.external_sort_min_chunk,
         max_chunk=cfg.external_sort_max_chunk,
     )
-    _dump = _dump_streaming if streaming else _dump_block
-    _file_iter_cls = _streaming_file_iter if streaming else _block_file_iter
+    if streaming:
+        batch_size_arg = batch_size
+
+        def _dump(chunk: list[T], f: IO[bytes]) -> None:
+            _dump_streaming(chunk, f, batch_size_arg)
+
+        _file_iter_cls: Callable[[IO[bytes]], Generator[T, None, None]] = _streaming_file_iter
+    else:
+        _dump = _dump_block
+        _file_iter_cls = _block_file_iter
 
     temp_paths: list[str] = []
+    numeric_merge_candidate = NUMERIC_MERGE_AVAILABLE and streaming and key is None
+    numeric_merge_kind: int | None = None
+
+    def _new_temp() -> IO[bytes]:
+        return tempfile.NamedTemporaryFile(
+            suffix=".tmp",
+            prefix="big_sort_",
+            delete=False,
+            buffering=IO_BUFFER_SIZE,
+        )
+
+    def _discard(tmp: IO[bytes]) -> None:
+        tmp.close()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
     def _dump_chunk(sorted_chunk: list) -> None:
-        tmp = tempfile.NamedTemporaryFile(suffix=".tmp", prefix="big_sort_", delete=False)
+        tmp = _new_temp()
         try:
             _dump(sorted_chunk, tmp)
             tmp.close()
         except Exception:
-            tmp.close()
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
+            _discard(tmp)
             raise
         temp_paths.append(tmp.name)
 
-    try:
-        # 阶段 1：双缓冲流水线排序 + 落盘
-        # 改进点（对比串行版）：原版每块 submit().result() 串行，排序与 I/O 完全串行。
-        # 双缓冲：submit 一块后立即继续读下一块；飞行队列满（_BUFFER_DEPTH 块）时
-        # 才 .result() 落盘最老的一块。排序 N 与 "读 N+1 + 落 N-1" 并行，并行度 1→2。
-        # 内存：飞行队列最多 2 个 future；每个 future 的 chunk 在 worker pickled 后即可
-        # 释放，主进程峰值 ≈ 2*chunk_size（与串行版一致，不退化成中数据分支）。
-        in_flight: deque[Future[list[T]]] = deque()
-        with ProcessPoolExecutor(max_workers=max_workers) as pool:
-            chunk: list = []
-            try:
-                for item in data:
-                    chunk.append(item)
-                    if len(chunk) >= chunk_size:
-                        in_flight.append(pool.submit(sort_chunk, (chunk, key, reverse)))
-                        chunk = []
-                        if len(in_flight) >= _BUFFER_DEPTH:
-                            _dump_chunk(in_flight.popleft().result())
-                if chunk:  # 末尾不足一块的也要排
-                    in_flight.append(pool.submit(sort_chunk, (chunk, key, reverse)))
-                # 排空飞行队列
-                while in_flight:
-                    _dump_chunk(in_flight.popleft().result())
-            except BaseException:
-                # 异常时取消未启动的 future；已启动的让其自然结束（pool.__exit__ 会 join）
-                for fut in in_flight:
-                    if not fut.running():
-                        fut.cancel()
-                raise
+    def _try_dump_numeric(chunk: list) -> bool:
+        """阶段 1 进程内化（方案③）：纯数值块直接 C 排序 + 二进制帧落盘。
 
-        # 阶段 2：多路归并
-        # heapq.merge 接受多个有序迭代器，逐条比较产出
+        命中返回 True；非纯数值（或 key 非 None / block 模式）返回 False，
+        调用方回退进程池。数值块不落进程池，等价于省掉整块的 pickle +
+        IPC 往返 + worker 启动，实测 1M int 单线程 introsort ≈ 21ms。
+        """
+        nonlocal numeric_merge_candidate, numeric_merge_kind
+        if not streaming or key is not None:
+            return False
+        tmp = _new_temp()
+        try:
+            kind = dump_sorted_frames_kind(chunk, tmp, batch_size=batch_size, reverse=reverse)
+            if kind < 0:
+                numeric_merge_candidate = False
+                _discard(tmp)
+                return False
+            if numeric_merge_kind is None:
+                numeric_merge_kind = kind
+            elif numeric_merge_kind != kind:
+                numeric_merge_candidate = False
+            tmp.close()
+        except Exception:
+            _discard(tmp)
+            raise
+        temp_paths.append(tmp.name)
+        return True
+
+    try:
+        # 阶段 1：流水线排序 + 落盘
+        # 深度由 _resolve_pipeline_depth 决定（默认 2×workers，P0-3）：
+        # submit 一块后立即继续读下一块；飞行队列满（depth 块）时
+        # 才 .result() 落盘最老的一块。排序 N 与 "读 N+1 + 落 N-1" 并行。
+        # 内存：飞行队列最多 depth 个 future；每个 future 的 chunk 在 worker
+        # pickled 后即可释放，主进程峰值 ≈ depth*chunk_size，深度有 config 封顶。
+        # 纯数值块走进程内 C 排序（_try_dump_numeric），此时 pool 懒创建——
+        # 全数值流不会启动任何子进程（Windows spawn 冷启动 1~2s 也一并省掉）。
+        in_flight: deque[Future[list[T]]] = deque()
+        pool: ProcessPoolExecutor | None = None
+
+        def _submit(chunk: list) -> None:
+            nonlocal pool
+            if pool is None:
+                pool = get_pool(max_workers)
+            in_flight.append(pool.submit(sort_chunk, (chunk, key, reverse)))
+            if len(in_flight) >= depth:
+                _dump_chunk(in_flight.popleft().result())
+
+        chunk: list = []
+        try:
+            for item in data:
+                chunk.append(item)
+                if len(chunk) >= chunk_size:
+                    if not _try_dump_numeric(chunk):
+                        _submit(chunk)
+                    chunk = []
+            if chunk and not _try_dump_numeric(chunk):  # 末尾不足一块的也要排
+                _submit(chunk)
+            # 排空飞行队列
+            while in_flight:
+                _dump_chunk(in_flight.popleft().result())
+        except BaseException:
+            # 异常时取消未启动的 future（已启动的自然结束；共享池不 shutdown）
+            for fut in in_flight:
+                if not fut.running():
+                    fut.cancel()
+            raise
+
+        # 同类型纯数值块在 C 层归并；其他数据维持通用 heapq.merge。
         files: list[IO[bytes]] = []
         try:
-            files.extend(open(path, "rb") for path in temp_paths)
-            file_iters: list[Generator[T, None, None]] = [_file_iter_cls(f) for f in files]
-            if reverse:
-                # 每块已降序排列；包装后 heapq.merge 升序归并，解包后全局降序
-                wrapped = [_wrap_reverse(it, key) for it in file_iters]
-                yield from _unwrap_reverse(heapq.merge(*wrapped))
+            files.extend(open(path, "rb", buffering=IO_BUFFER_SIZE) for path in temp_paths)
+            if numeric_merge_candidate and numeric_merge_kind is not None:
+                assert merge_numeric_files is not None
+                yield from merge_numeric_files(files, numeric_merge_kind, reverse)
             else:
-                yield from heapq.merge(*file_iters, key=key)  # type: ignore[arg-type]
+                file_iters: list[Generator[T, None, None]] = [_file_iter_cls(f) for f in files]
+                if reverse:
+                    wrapped = [_wrap_reverse(it, key) for it in file_iters]
+                    yield from _unwrap_reverse(heapq.merge(*wrapped))
+                else:
+                    yield from heapq.merge(*file_iters, key=key)  # type: ignore[arg-type]
         finally:
             for f in files:
                 try:

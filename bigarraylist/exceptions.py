@@ -37,7 +37,8 @@ class DataSourceError(BigArrayListError, TypeError):
     """source 类型不支持某操作。
 
     例：
-        - generator source 已被耗尽，无法 reverse / copy
+        - 对 reversed() 不可用的源（set、from_stream 落盘流）调用 reverse
+        - 对一次性迭代器源调用 copy
         - 不可哈希元素走小数据 distinct 分支
     """
 
